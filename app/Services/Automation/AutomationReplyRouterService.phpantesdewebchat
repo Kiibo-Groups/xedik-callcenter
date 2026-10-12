@@ -1,0 +1,85 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services\Automation;
+
+use App\Models\Conversation;
+use App\Services\WhatsApp\WhatsAppOutboundService;
+use App\Services\ZernioService;
+
+/**
+ * Routes an outbound automation reply to the right channel-specific sender
+ * based on conversation.channel — n8n/automation callers never choose the
+ * provider themselves, they only ever pass a conversation_id + message.
+ * Reuses the existing WhatsApp/Zernio outbound services, no duplicated
+ * channel-sending logic.
+ */
+class AutomationReplyRouterService
+{
+    public function __construct(
+        private readonly WhatsAppOutboundService $whatsAppOutbound,
+        private readonly ZernioService $zernio,
+    ) {}
+
+    /**
+     * @return array{ok: bool, message?: \App\Models\Message, external_id?: ?string, error?: string, status?: int}
+     */
+    public function send(Conversation $conversation, string $text, string $fromName = 'Bot', ?int $sentBy = null): array
+    {
+        return match ($conversation->channel) {
+            'whatsapp' => $this->sendWhatsapp($conversation, $text, $fromName, $sentBy),
+            'facebook', 'instagram' => $this->sendSocial($conversation, $text, $fromName, $sentBy),
+            default => [
+                'ok'     => false,
+                'error'  => "Unsupported channel '{$conversation->channel}' for automation reply.",
+                'status' => 422,
+            ],
+        };
+    }
+
+    private function sendWhatsapp(Conversation $conversation, string $text, string $fromName, ?int $sentBy): array
+    {
+        $account = $conversation->whatsappAccount;
+        if (!$account || !$account->is_active) {
+            return ['ok' => false, 'error' => 'No active WhatsApp account linked to this conversation.', 'status' => 422];
+        }
+
+        $result = $this->whatsAppOutbound->sendText($conversation, $account, $text, $fromName, $sentBy);
+        if (!$result['ok']) {
+            return $result;
+        }
+
+        return ['ok' => true, 'message' => $result['message'], 'external_id' => $result['wamid'] ?? null];
+    }
+
+    private function sendSocial(Conversation $conversation, string $text, string $fromName, ?int $sentBy): array
+    {
+        $account = $conversation->socialAccount;
+        if (!$account || !$account->is_active) {
+            return ['ok' => false, 'error' => 'No active social account linked to this conversation.', 'status' => 422];
+        }
+
+        try {
+            $result = $this->zernio->sendMessage($conversation->external_id, $account->zernio_account_id, $text);
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'error' => 'Could not send the message. The messaging window may have expired.', 'status' => 502];
+        }
+
+        $message = \App\Models\Message::create([
+            'tenant_id'       => $conversation->tenant_id,
+            'conversation_id' => $conversation->id,
+            'direction'       => 'outbound',
+            'from_email'      => $account->username ?? $account->display_name,
+            'from_name'       => $fromName,
+            'to_email'        => $conversation->from_email,
+            'body_text'       => $text,
+            'body_html'       => null,
+            'message_id'      => $result['message_id'] ?? null,
+            'sent_by'         => $sentBy,
+            'sent_at'         => now(),
+        ]);
+
+        return ['ok' => true, 'message' => $message, 'external_id' => $result['message_id'] ?? null];
+    }
+}

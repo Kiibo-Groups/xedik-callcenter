@@ -1,0 +1,879 @@
+(function (window) {
+    'use strict';
+
+    const namespace = window.xedikVoice = window.xedikVoice || {};
+
+    class VoiceSessionManager {
+        constructor(options) {
+            this.emitter = namespace.createEmitter();
+            this.api = options.apiClient;
+            this.heartbeatIntervalMs = options.heartbeatIntervalMs || 60000;
+            this.ua = null;
+            this.sipCredentials = null;
+            this.sessionUuid = this.api.sessionUuid();
+            this.extension = null;
+            this.backendRegistered = false;
+            this.ownershipState = null;
+            this.phase = 'idle';
+            this.heartbeatTimer = null;
+            this.initializationPromise = null;
+            this.warmupPromise = null;
+            this.measurement = null;
+            this.destroyed = false;
+            this.allowedCallStates = new Set([
+                'no_call', 'ringing', 'connecting', 'active', 'held',
+                'ending',
+            ]);
+            this.callStateQueue = Promise.resolve();
+            this.lastCallStateQueued = null;
+            this.lastCallStateConfirmed = null;
+            this.observedCallState = 'no_call';
+            this.pagehideHandler = () => {
+                if (!this.sessionUuid || !this.api?.pagehide) return;
+                this.api.pagehide(this.sessionUuid);
+            };
+            window.addEventListener('pagehide', this.pagehideHandler);
+
+            this.callManager = new namespace.VoiceCallManager({
+                getUa: () => this.ua,
+                getSipCredentials: () => this.sipCredentials,
+                allowInbound: options.allowInbound !== false,
+                remoteAudio: options.remoteAudio,
+                ringbackAudio: options.ringbackAudio,
+                ringtoneAudio: options.ringtoneAudio,
+                onCallStateChange: (callState, detail) => {
+                    this.handleAggregatedCallState(callState, detail);
+                },
+            });
+
+            [
+                'log', 'status', 'controls', 'created', 'incoming',
+                'inbound-rejected', 'finished', 'cleanup', 'mute', 'hold',
+            ].forEach(eventName => {
+                this.callManager.on(eventName, detail => {
+                    this.emit(`call:${eventName}`, detail);
+                });
+            });
+        }
+
+        on(eventName, listener) {
+            return this.emitter.on(eventName, listener);
+        }
+
+        emit(eventName, detail) {
+            this.emitter.emit(eventName, detail);
+        }
+
+        log(message, data) {
+            this.emit('log', { message, data: data || null });
+        }
+
+        state() {
+            return {
+                ua: this.ua,
+                sessionUuid: this.sessionUuid,
+                extension: this.extension,
+                ownershipState: this.ownershipState,
+                backendRegistered: this.backendRegistered,
+                registered: Boolean(
+                    this.ua
+                    && typeof this.ua.isRegistered === 'function'
+                    && this.ua.isRegistered()
+                ),
+                ready: this.isReady(),
+                phase: this.phase,
+                hasCall: Boolean(this.callManager.currentSession),
+            };
+        }
+
+        isReady() {
+            return Boolean(
+                this.ua
+                && this.sipCredentials
+                && this.backendRegistered
+                && this.phase === 'voice-ready'
+                && typeof this.ua.isRegistered === 'function'
+                && this.ua.isRegistered()
+            );
+        }
+
+        initialize() {
+            if (!this.initializationPromise) {
+                this.initializationPromise = Promise.resolve(this);
+            }
+
+            return this.initializationPromise;
+        }
+
+        warmUp() {
+            if (this.isReady()) {
+                return Promise.resolve(this.state());
+            }
+
+            if (!this.warmupPromise) {
+                this.warmupPromise = this.performWarmUp()
+                    .finally(() => {
+                        this.warmupPromise = null;
+                    });
+            }
+
+            return this.warmupPromise;
+        }
+
+        async performWarmUp() {
+            this.phase = 'warming-up';
+            this.emit('warmup-started', this.state());
+            const ownership = await this.checkOwnership();
+
+            if (ownership.policy === 'direct') {
+                await this.start();
+            } else if (ownership.policy === 'reconnect') {
+                if (!this.isReady()) {
+                    await this.reconnect();
+                }
+            } else if (ownership.policy === 'silent') {
+                const takeover = await this.takeOver(false);
+                if (takeover?.awaitingTakeover || takeover?.blocked) {
+                    return takeover;
+                }
+            } else if (ownership.policy === 'confirm') {
+                this.emit('takeover-required', ownership);
+                return {
+                    ...this.state(),
+                    awaitingTakeover: true,
+                };
+            } else if (ownership.policy === 'blocked') {
+                this.emit('ownership-blocked', ownership);
+                return {
+                    ...this.state(),
+                    blocked: true,
+                };
+            } else if (ownership.state === 'none') {
+                await this.start();
+            } else if (ownership.state === 'same_tab') {
+                if (!this.isReady()) {
+                    await this.reconnect();
+                }
+            } else if (ownership.state === 'other_tab') {
+                this.emit('takeover-required', ownership);
+                return {
+                    ...this.state(),
+                    awaitingTakeover: true,
+                };
+            } else {
+                throw new Error(
+                    ownership.message || 'Voice ownership is unavailable.'
+                );
+            }
+
+            await this.waitUntilReady();
+            return this.state();
+        }
+
+        async checkOwnership() {
+            this.log('Checking ownership');
+            const startedAt = window.performance.now();
+            let result;
+            try {
+                result = await this.api.ownership();
+            } finally {
+                this.emit('timing', {
+                    metric: 'ownership_request_ms',
+                    duration_ms: Math.round(
+                        (window.performance.now() - startedAt) * 100
+                    ) / 100,
+                });
+            }
+            const body = result.body || {};
+
+            this.ownershipState = body.state || null;
+
+            if (body.state === 'same_tab') {
+                this.sessionUuid = body.session?.session_uuid
+                    || this.sessionUuid;
+                this.api.storeSessionUuid(this.sessionUuid);
+            } else if (body.state === 'none'
+                || body.state === 'other_tab') {
+                this.sessionUuid = null;
+                this.api.storeSessionUuid(null);
+            }
+
+            this.emit('ownership', {
+                state: this.ownershipState,
+                sessionUuid: this.sessionUuid,
+                message: body.message || null,
+                policy: body.policy || null,
+                reason: body.reason || null,
+                callState: body.call_state || null,
+                callStateIsFresh: body.call_state_is_fresh ?? null,
+                agentStatus: body.agent_status || null,
+            });
+            this.emit('state', this.state());
+            return body;
+        }
+
+        start() {
+            return this.bootstrapOperation('start', () =>
+                this.api.start(this.measurement?.measurementId)
+            );
+        }
+
+        reconnect() {
+            if (!this.sessionUuid) {
+                throw new Error('Missing session UUID for reconnect.');
+            }
+
+            return this.bootstrapOperation('reconnect', () =>
+                this.api.reconnect(
+                    this.sessionUuid,
+                    this.measurement?.measurementId
+                )
+            );
+        }
+
+        takeOver(confirmed) {
+            return this.bootstrapOperation('takeover', () =>
+                this.api.takeOver(
+                    this.measurement?.measurementId,
+                    confirmed
+                )
+            );
+        }
+
+        async bootstrapOperation(operation, request) {
+            if (this.measurement) {
+                this.failMeasurement('Measurement replaced by a new operation.');
+            }
+
+            this.beginMeasurement(operation);
+            this.phase = 'connecting';
+            this.mark('backend_request_started');
+            this.emit('session-status', {
+                status: 'Connecting',
+                operation,
+            });
+
+            try {
+                const result = await request();
+                this.mark('backend_response_received');
+                this.measurement.backendServerTiming =
+                    result.serverTiming || null;
+
+                if (!result.body?.ok) {
+                    if (operation === 'takeover'
+                        && result.status === 409
+                        && result.body?.state === 'confirmation_required') {
+                        this.phase = 'awaiting-takeover';
+                        this.failMeasurement('Takeover confirmation required.');
+                        this.emit('takeover-required', result.body);
+                        return {
+                            ...this.state(),
+                            awaitingTakeover: true,
+                        };
+                    }
+
+                    if (operation === 'takeover'
+                        && result.status === 409
+                        && result.body?.state === 'blocked') {
+                        this.phase = 'awaiting-takeover';
+                        this.failMeasurement('Takeover blocked by active call.');
+                        this.emit('ownership-blocked', result.body);
+                        return {
+                            ...this.state(),
+                            blocked: true,
+                        };
+                    }
+
+                    const requestError = new Error(
+                        result.body?.message
+                        || `Voice ${operation} failed.`
+                    );
+                    requestError.status = result.status;
+                    requestError.state = result.body?.state || null;
+                    throw requestError;
+                }
+
+                const body = result.body;
+                const sessionUuid = body.session?.session_uuid;
+
+                if (!sessionUuid || !body.sip) {
+                    throw new Error(
+                        'Voice response is missing session credentials.'
+                    );
+                }
+
+                this.sessionUuid = sessionUuid;
+                this.lastCallStateQueued = null;
+                this.lastCallStateConfirmed = null;
+                this.observedCallState = 'no_call';
+                this.api.storeSessionUuid(sessionUuid);
+                this.extension = body.extension || null;
+                this.ownershipState = 'same_tab';
+                this.backendRegistered = false;
+                this.sipCredentials = body.sip;
+                this.emit('agent-status', {
+                    operation,
+                    agentStatus: body.agent_status || body.agentStatus || null,
+                });
+                this.emit('credentials', {
+                    sessionUuid,
+                    extension: this.extension,
+                    sip: body.sip,
+                });
+                this.emit('state', this.state());
+                this.startJsSip(body.sip);
+                return this.state();
+            } catch (error) {
+                this.phase = 'unavailable';
+                this.failMeasurement(namespace.safeError(error));
+                this.emit('unavailable', {
+                    message: namespace.safeError(error),
+                    operation,
+                });
+                throw error;
+            }
+        }
+
+        startJsSip(sip) {
+            if (typeof window.JsSIP === 'undefined') {
+                throw new Error('JsSIP is not loaded.');
+            }
+
+            this.stopUa({ clearCredentials: false });
+            this.sipCredentials = sip;
+            const socket = new window.JsSIP.WebSocketInterface(
+                sip.wss_server
+            );
+            const ua = new window.JsSIP.UA({
+                sockets: [socket],
+                uri: sip.uri,
+                authorization_user: sip.authorization_user,
+                password: sip.password,
+                realm: sip.realm,
+                register: true,
+                session_timers: false,
+            });
+
+            ua.expectedShutdown = false;
+            this.ua = ua;
+
+            ua.on('connecting', () => {
+                this.phase = 'connecting';
+                this.log('JsSIP connecting');
+                this.emit('session-status', { status: 'Connecting' });
+            });
+            ua.on('connected', () => {
+                this.phase = 'transport-connected';
+                this.mark('websocket_connected');
+                this.log('JsSIP WebSocket connected');
+                this.emit('session-status', { status: 'Connecting' });
+            });
+            ua.on('registered', () => {
+                this.handleSipRegistered(ua).catch(error => {
+                    this.phase = 'unavailable';
+                    this.backendRegistered = false;
+                    this.log('Registered notification error', {
+                        message: namespace.safeError(error),
+                    });
+                    this.failMeasurement(namespace.safeError(error));
+                    this.emit('unavailable', {
+                        message: namespace.safeError(error),
+                        operation: 'registered',
+                    });
+                });
+            });
+            ua.on('registrationFailed', event => {
+                this.log('JsSIP registration failed', {
+                    cause: event?.cause ?? null,
+                    status_code: event?.response?.status_code ?? null,
+                    reason_phrase: event?.response?.reason_phrase ?? null,
+                    expected: ua.expectedShutdown,
+                });
+
+                if (ua.expectedShutdown) {
+                    this.log(
+                        'Registration failure ignored because UA shutdown was expected'
+                    );
+                    return;
+                }
+
+                this.backendRegistered = false;
+                this.phase = 'unavailable';
+                this.emit('session-status', {
+                    status: 'Registration Failed',
+                });
+                this.emit('unavailable', {
+                    message: event?.cause || 'SIP registration failed.',
+                    operation: 'register',
+                });
+                this.failMeasurement(
+                    event?.cause || 'SIP registration failed.'
+                );
+                this.emit('state', this.state());
+            });
+            ua.on('unregistered', () => {
+                this.log('JsSIP unregistered', {
+                    expected: ua.expectedShutdown,
+                });
+
+                if (ua.expectedShutdown || ua !== this.ua) {
+                    return;
+                }
+
+                this.stopHeartbeat();
+                this.backendRegistered = false;
+                this.phase = 'unavailable';
+                this.emit('session-status', {
+                    status: 'Disconnected',
+                });
+                this.emit('unavailable', {
+                    message: 'SIP registration ended.',
+                    operation: 'unregistered',
+                });
+                this.emit('state', this.state());
+            });
+            ua.on('disconnected', event => {
+                this.log('JsSIP WebSocket disconnected', {
+                    code: event?.code ?? null,
+                    reason: event?.reason ?? null,
+                    expected: ua.expectedShutdown,
+                });
+                if (ua.expectedShutdown || ua !== this.ua) {
+                    return;
+                }
+
+                this.stopHeartbeat();
+                this.backendRegistered = false;
+                this.phase = 'unavailable';
+                this.emit('session-status', {
+                    status: 'Disconnected',
+                });
+                this.emit('unavailable', {
+                    message: event?.reason || 'WebSocket disconnected.',
+                    operation: 'disconnected',
+                });
+                this.failMeasurement(
+                    event?.reason || 'WebSocket disconnected.'
+                );
+                this.emit('state', this.state());
+            });
+            ua.on('newRTCSession', event => {
+                this.callManager.handleNewRtcSession(event);
+            });
+
+            this.log('Starting JsSIP UA', {
+                realm: sip.realm,
+                transport: 'wss',
+            });
+            this.mark('jssip_start_called');
+            ua.start();
+            this.emit('state', this.state());
+        }
+
+        async handleSipRegistered(ua) {
+            if (ua !== this.ua || ua.expectedShutdown) {
+                return;
+            }
+
+            this.mark('sip_registered');
+            this.phase = 'sip-registered';
+            this.log('JsSIP registered successfully');
+            this.emit('session-status', { status: 'Registered' });
+
+            if (!this.backendRegistered) {
+                this.mark('registered_api_started');
+                const result = await this.api.registered(
+                    this.sessionUuid,
+                    this.measurement?.measurementId
+                );
+                this.mark('registered_api_completed');
+
+                if (this.measurement) {
+                    this.measurement.registeredServerTiming =
+                        result.serverTiming || null;
+                }
+
+                if (!result.body?.ok) {
+                    throw new Error(
+                        result.body?.message
+                        || 'Unable to mark Voice Session as registered.'
+                    );
+                }
+
+                this.backendRegistered = true;
+            }
+
+            this.startHeartbeat();
+            this.phase = 'voice-ready';
+            this.emit('ready', this.state());
+            this.emit('state', this.state());
+            if (this.callManager.aggregateCallState() === 'no_call') {
+                this.sendCallState('no_call', 'voice-ready');
+            }
+            this.completeMeasurement();
+        }
+
+        handleAggregatedCallState(callState, detail) {
+            const previous = this.observedCallState;
+            this.observedCallState = callState;
+            this.log('Call state transition', {
+                from: previous,
+                to: callState,
+                source: detail?.source || null,
+                active_sessions: detail?.activeSessions ?? 0,
+            });
+            this.sendCallState(callState, detail?.source || 'call-manager');
+        }
+
+        sendCallState(callState, source) {
+            if (['replaced', 'revoked', 'unavailable', 'stopped'].includes(
+                this.phase
+            )) {
+                return Promise.resolve(null);
+            }
+
+            if (!this.allowedCallStates.has(callState)) {
+                this.log('Call state synchronization warning', {
+                    message: 'Unsupported call state.',
+                    call_state: callState,
+                });
+                return Promise.resolve(null);
+            }
+
+            const sessionUuid = this.sessionUuid;
+            const browserTabId = this.api?.browserTabId;
+            if (!sessionUuid || !browserTabId) {
+                return Promise.resolve(null);
+            }
+
+            if (this.lastCallStateQueued === callState) {
+                return this.callStateQueue;
+            }
+
+            this.lastCallStateQueued = callState;
+            this.callStateQueue = this.callStateQueue
+                .catch(() => null)
+                .then(async () => {
+                    const result = await this.api.callState(
+                        sessionUuid,
+                        browserTabId,
+                        callState
+                    );
+
+                    if (!result.body?.ok) {
+                        this.handleCallStateTerminal(result.body);
+                        throw new Error(
+                            result.body?.message
+                            || 'Call state synchronization failed.'
+                        );
+                    }
+
+                    this.lastCallStateConfirmed = callState;
+                    this.log('Call state synchronized', {
+                        call_state: callState,
+                        source: source || null,
+                    });
+                    return result.body;
+                })
+                .catch(error => {
+                    if (this.lastCallStateQueued === callState) {
+                        this.lastCallStateQueued =
+                            this.lastCallStateConfirmed;
+                    }
+                    this.log('Call state synchronization warning', {
+                        call_state: callState,
+                        message: namespace.safeError(error),
+                    });
+                    return null;
+                });
+
+            return this.callStateQueue;
+        }
+
+        handleCallStateTerminal(body) {
+            const state = body?.state || body?.code;
+            if (state === 'replaced') {
+                this.handleSessionReplaced();
+                return;
+            }
+
+            if (state === 'revoked') {
+                this.phase = 'revoked';
+                this.stopUa({ clearCredentials: true });
+                this.sessionUuid = null;
+                this.extension = null;
+                this.ownershipState = 'none';
+                this.api.storeSessionUuid(null);
+                this.emit('revoked', this.state());
+                return;
+            }
+
+            if (['expired', 'failed'].includes(state)) {
+                this.phase = 'unavailable';
+                this.stopUa({ clearCredentials: true });
+                this.sessionUuid = null;
+                this.extension = null;
+                this.ownershipState = null;
+                this.api.storeSessionUuid(null);
+                this.emit('unavailable', {
+                    message: body?.message || 'Voice session is unavailable.',
+                    operation: 'call-state',
+                });
+            }
+        }
+
+        startHeartbeat() {
+            this.stopHeartbeat();
+            this.heartbeatTimer = window.setInterval(() => {
+                this.sendHeartbeat().catch(error => {
+                    this.phase = 'unavailable';
+                    this.backendRegistered = false;
+                    this.log('Heartbeat error', {
+                        message: namespace.safeError(error),
+                    });
+                    this.emit('heartbeat-error', {
+                        message: namespace.safeError(error),
+                    });
+                    this.emit('unavailable', {
+                        message: namespace.safeError(error),
+                        operation: 'heartbeat',
+                    });
+                    this.emit('state', this.state());
+                });
+            }, this.heartbeatIntervalMs);
+            this.mark('heartbeat_started');
+            this.log('Heartbeat timer started', {
+                interval_ms: this.heartbeatIntervalMs,
+            });
+        }
+
+        stopHeartbeat() {
+            if (this.heartbeatTimer !== null) {
+                window.clearInterval(this.heartbeatTimer);
+                this.heartbeatTimer = null;
+                this.log('Heartbeat timer stopped');
+            }
+        }
+
+        async sendHeartbeat() {
+            if (!this.sessionUuid) return;
+            const result = await this.api.heartbeat(this.sessionUuid);
+
+            if (!result.body?.ok) {
+                if (result.body?.state === 'inactive_session') {
+                    this.log('Voice session replaced', {
+                        state: result.body.state,
+                        message: result.body.message || null,
+                    });
+                    this.handleSessionReplaced();
+                    return;
+                }
+
+                throw new Error(
+                    result.body?.message || 'Voice heartbeat failed.'
+                );
+            }
+
+            this.emit('heartbeat', {
+                at: new Date(),
+                body: result.body,
+            });
+            this.emit('session-status', { status: 'Active' });
+        }
+
+        handleSessionReplaced() {
+            this.phase = 'replaced';
+            this.stopUa({ clearCredentials: true });
+            this.sessionUuid = null;
+            this.extension = null;
+            this.ownershipState = null;
+            this.api.storeSessionUuid(null);
+            this.emit('replaced', this.state());
+            this.emit('session-status', { status: 'Session Replaced' });
+            this.emit('state', this.state());
+        }
+
+        stopUa(options) {
+            const clearCredentials = options?.clearCredentials !== false;
+            this.stopHeartbeat();
+            this.callManager.cleanup(true);
+            const ua = this.ua;
+
+            if (!ua) {
+                if (clearCredentials) this.sipCredentials = null;
+                return;
+            }
+
+            this.ua = null;
+            ua.expectedShutdown = true;
+
+            try {
+                ua.stop();
+            } catch (error) {
+                this.log('JsSIP stop error', {
+                    message: namespace.safeError(error),
+                });
+            }
+
+            if (clearCredentials) {
+                this.sipCredentials = null;
+            }
+            this.backendRegistered = false;
+            this.emit('state', this.state());
+        }
+
+        async revoke() {
+            const sessionUuid = this.sessionUuid;
+            this.stopUa({ clearCredentials: true });
+
+            if (sessionUuid) {
+                const result = await this.api.revoke(sessionUuid);
+                if (!result.body?.ok) {
+                    throw new Error(
+                        result.body?.message || 'Voice revoke failed.'
+                    );
+                }
+            }
+
+            this.sessionUuid = null;
+            this.extension = null;
+            this.ownershipState = 'none';
+            this.phase = 'revoked';
+            this.api.storeSessionUuid(null);
+            this.emit('revoked', this.state());
+            this.emit('session-status', { status: 'Revoked' });
+            this.emit('state', this.state());
+        }
+
+        destroy() {
+            if (this.destroyed) return;
+            this.destroyed = true;
+            window.removeEventListener('pagehide', this.pagehideHandler);
+            this.stopUa({ clearCredentials: true });
+            this.phase = 'stopped';
+        }
+
+        waitUntilReady(timeoutMs) {
+            if (this.isReady()) {
+                return Promise.resolve(this.state());
+            }
+
+            const timeout = timeoutMs || 20000;
+
+            return new Promise((resolve, reject) => {
+                let settled = false;
+                const disposeReady = this.on('ready', state => {
+                    if (settled) return;
+                    settled = true;
+                    window.clearTimeout(timer);
+                    disposeReady();
+                    disposeError();
+                    resolve(state);
+                });
+                const disposeError = this.on('unavailable', detail => {
+                    if (settled) return;
+                    settled = true;
+                    window.clearTimeout(timer);
+                    disposeReady();
+                    disposeError();
+                    reject(new Error(detail.message));
+                });
+                const timer = window.setTimeout(() => {
+                    if (settled) return;
+                    settled = true;
+                    disposeReady();
+                    disposeError();
+                    reject(new Error('Voice warm-up timed out.'));
+                }, timeout);
+            });
+        }
+
+        beginMeasurement(operation) {
+            const startedAt = window.performance.now();
+            this.measurement = {
+                operation,
+                measurementId: namespace.uuid(),
+                startedAt,
+                marks: { operation_started: startedAt },
+                lastStep: 'operation_started',
+                backendServerTiming: null,
+                registeredServerTiming: null,
+            };
+        }
+
+        mark(step) {
+            if (!this.measurement) return;
+            this.measurement.marks[step] = window.performance.now();
+            this.measurement.lastStep = step;
+        }
+
+        duration(from, to) {
+            const start = this.measurement?.marks[from];
+            const end = this.measurement?.marks[to];
+            return Number.isFinite(start) && Number.isFinite(end)
+                ? Math.round((end - start) * 100) / 100
+                : null;
+        }
+
+        completeMeasurement() {
+            if (!this.measurement) return;
+            this.mark('voice_ready');
+            const result = {
+                operation: this.measurement.operation,
+                measurement_id: this.measurement.measurementId,
+                backend_request_ms: this.duration(
+                    'backend_request_started',
+                    'backend_response_received'
+                ),
+                jssip_start_delay_ms: this.duration(
+                    'backend_response_received',
+                    'jssip_start_called'
+                ),
+                websocket_connect_ms: this.duration(
+                    'jssip_start_called',
+                    'websocket_connected'
+                ),
+                sip_register_ms: this.duration(
+                    'websocket_connected',
+                    'sip_registered'
+                ),
+                registered_api_ms: this.duration(
+                    'registered_api_started',
+                    'registered_api_completed'
+                ),
+                post_backend_to_ready_ms: this.duration(
+                    'backend_response_received',
+                    'voice_ready'
+                ),
+                total_voice_ready_ms: this.duration(
+                    'operation_started',
+                    'voice_ready'
+                ),
+                backend_server_timing:
+                    this.measurement.backendServerTiming,
+                registered_server_timing:
+                    this.measurement.registeredServerTiming,
+            };
+            this.emit('performance', result);
+            this.measurement = null;
+        }
+
+        failMeasurement(message) {
+            if (!this.measurement) return;
+            const result = {
+                operation: this.measurement.operation,
+                measurement_id: this.measurement.measurementId,
+                last_step: this.measurement.lastStep,
+                elapsed_ms: Math.round(
+                    (window.performance.now()
+                        - this.measurement.startedAt) * 100
+                ) / 100,
+                message,
+            };
+            this.emit('performance-failed', result);
+            this.measurement = null;
+        }
+    }
+
+    namespace.VoiceSessionManager = VoiceSessionManager;
+})(window);

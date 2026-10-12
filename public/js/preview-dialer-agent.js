@@ -1,0 +1,1709 @@
+(function () {
+    'use strict';
+
+    if (window.PreviewDialerAgent && window.PreviewDialerAgent.__initialized) {
+        return;
+    }
+
+    const ACTIVE_STATUSES = ['pending', 'accepted'];
+    const TAB_ID_KEY = 'preview_dialer_tab_id';
+    const OWNER_STALE_MS = 15000;
+    const OWNER_HEARTBEAT_MS = 4000;
+    const AFTER_ACTION_DELAY_MS = 1500;
+    const POPOVER_ANCHOR_OFFSET_PX = 2;
+    const POPOVER_HEADER_GAP_PX = 2;
+    const DETAIL_EXCLUDED_KEYS = ['phone', 'phone_number', 'telefono'];
+
+    const state = {
+        config: null,
+        tabId: null,
+        storageKey: null,
+        initialized: false,
+        destroyed: false,
+        _booting: false,  // true from init() until onConsoleReadinessChanged(bootComplete=true)
+        pollTimer: null,
+        timerInterval: null,
+        activeTimerOfferId: null,
+        offerTimerTick: null,
+        offerTimerLastSeconds: null,
+        ownerHeartbeatTimer: null,
+        inFlight: false,
+        claimInFlight: false,
+        actionInFlight: false,
+        suspendClaims: false,
+        voiceWrapUpPending: false,
+        expireInFlight: false,
+        _notReadyExpirePromise: null,
+        _resumeRequested: false,
+        _cleaningUp: false,
+        currentOffer: null,
+        currentOwner: false,
+        lastErrorAt: 0,
+        bound: {},
+        restoreCurrentOfferPromise: null,
+    };
+
+    function init() {
+        if (state.initialized) return;
+
+        const el = document.getElementById('preview-dialer-config');
+        if (!el) return;
+
+        state.config = readConfig(el);
+        if (!state.config.enabled) return;
+
+        state.tabId = getOrCreateTabId();
+        state.storageKey = `preview_dialer_offer:${state.config.tenantId}:${state.config.userId}`;
+        state.initialized = true;
+        state.destroyed = false;
+        state._booting = true;  // held until onConsoleReadinessChanged fires
+
+        state.bound.storage = onStorage;
+        state.bound.visibility = onVisibilityChange;
+        state.bound.pagehide = releaseVisualOwnership;
+        state.bound.previewAnchorClick = onPreviewAnchorClick;
+        state.bound.previewDocumentClick = onPreviewDocumentClick;
+        state.bound.previewReposition = positionActivePreviewPopover;
+        window.addEventListener('storage', state.bound.storage);
+        document.addEventListener('visibilitychange', state.bound.visibility);
+        window.addEventListener('pagehide', state.bound.pagehide);
+        window.addEventListener('beforeunload', state.bound.pagehide);
+        bindPreviewAnchor();
+
+        // Reconcile any accepted offer from a prior tab session (no UI shown during boot).
+        // startPolling() is intentionally not called here — onConsoleReadinessChanged starts it.
+        restoreCurrentOffer();
+    }
+
+    function destroy() {
+        state.destroyed = true;
+        stopPolling();
+        stopOfferTimer();
+        stopOwnerHeartbeat();
+        releaseVisualOwnership();
+        if (state.bound.storage) window.removeEventListener('storage', state.bound.storage);
+        if (state.bound.visibility) document.removeEventListener('visibilitychange', state.bound.visibility);
+        unbindPreviewAnchor();
+        if (state.bound.pagehide) {
+            window.removeEventListener('pagehide', state.bound.pagehide);
+            window.removeEventListener('beforeunload', state.bound.pagehide);
+        }
+        state.initialized = false;
+    }
+
+    function readConfig(el) {
+        const poll = parseInt(el.dataset.pollInterval || '5000', 10);
+        return {
+            enabled: el.dataset.enabled === 'true',
+            userId: el.dataset.userId || '',
+            tenantId: el.dataset.tenantId || '',
+            eligibilityUrl: el.dataset.eligibilityUrl,
+            currentUrl: el.dataset.currentUrl,
+            claimUrl: el.dataset.claimUrl,
+            acceptUrlTemplate: el.dataset.acceptUrlTemplate,
+            declineUrlTemplate: el.dataset.declineUrlTemplate,
+            expireUrlTemplate: el.dataset.expireUrlTemplate,
+            linkUrlTemplate: el.dataset.linkUrlTemplate || '',
+            recoverStaleCallUrlTemplate: el.dataset.recoverStaleCallUrlTemplate || '',
+            pollInterval: Math.max(Number.isFinite(poll) ? poll : 5000, 3000),
+            csrfToken: document.querySelector('meta[name="csrf-token"]')?.content || '',
+        };
+    }
+
+    function getOrCreateTabId() {
+        let id = sessionStorage.getItem(TAB_ID_KEY);
+        if (!id) {
+            id = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            sessionStorage.setItem(TAB_ID_KEY, id);
+        }
+        return id;
+    }
+
+    async function restoreCurrentOffer() {
+        if (state.restoreCurrentOfferPromise) {
+            return state.restoreCurrentOfferPromise;
+        }
+
+        state.restoreCurrentOfferPromise = (async function () {
+            const response = await request(state.config.currentUrl, { method: 'GET', allowNoContent: true });
+            if (!response || response.status === 204 || !response.data?.offer) {
+                clearLocalOfferIfStale();
+                state.currentOffer = null;
+                return null;
+            }
+
+            return handleOffer(response.data.offer, 'current');
+        })().finally(function () {
+            state.restoreCurrentOfferPromise = null;
+        });
+
+        return state.restoreCurrentOfferPromise;
+    }
+
+    async function ensureCurrentOfferForRecovery(conversationId, callUuid) {
+        const offerToken = function (offer) {
+            return offer?.token || offer?.reservation_token || offer?.reservationToken || null;
+        };
+        const offerConversationId = function (offer) {
+            return offer?.conversation_id ?? offer?.conversationId ?? null;
+        };
+        const offerCallUuid = function (offer) {
+            return offer?.call_uuid || offer?.callUuid || null;
+        };
+        const normalizeOffer = function (offer) {
+            if (!offer) return null;
+            if (!offer.token) offer.token = offerToken(offer);
+            if (!offer.call_uuid && offer.callUuid) offer.call_uuid = offer.callUuid;
+            if (!offer.conversation_id && offer.conversationId) {
+                offer.conversation_id = offer.conversationId;
+            }
+            return offer;
+        };
+        const matches = function (offer) {
+            return offer
+                && String(offer.status || '').toLowerCase() === 'accepted'
+                && Number(offer.active_slot) === 1
+                && String(offerConversationId(offer) || '') === String(conversationId || '')
+                && String(offerCallUuid(offer) || '') === String(callUuid || '')
+                && Boolean(offerToken(offer));
+        };
+
+        if (matches(state.currentOffer)) {
+            return normalizeOffer(state.currentOffer);
+        }
+
+        await restoreCurrentOffer();
+
+        return matches(state.currentOffer)
+            ? normalizeOffer(state.currentOffer)
+            : null;
+    }
+
+    async function checkEligibility() {
+        const response = await request(state.config.eligibilityUrl, { method: 'GET' });
+        const eligibility = response?.data || { eligible: false, reason: 'network_error' };
+        state._lastEligibility = eligibility;
+
+        // Diagnostic: when the backend says not-eligible, dump the client-side flags so a
+        // "UI shows Ready but backend says agent_not_ready" desync is visible in the console.
+        if (!eligibility.eligible) {
+            const adapter = window.agentConsoleVoiceAdapter || null;
+            const manager = adapter && adapter.manager ? adapter.manager : null;
+            debug('eligibility not eligible', {
+                reason: eligibility.reason,
+                backend_has_active_offer: eligibility.has_active_offer ?? null,
+                voice_ready: (manager && typeof manager.isReady === 'function') ? manager.isReady() : null,
+                sip_registered: (manager && typeof manager.state === 'function') ? (manager.state().registered ?? null) : null,
+                heartbeat_running: manager ? (manager.heartbeatTimer !== null && manager.heartbeatTimer !== undefined) : null,
+                suspendClaims: state.suspendClaims,
+                actionInFlight: state.actionInFlight,
+                inFlight: state.inFlight,
+                claimInFlight: state.claimInFlight,
+                currentOffer_status: state.currentOffer?.status ?? null,
+            });
+        } else {
+            debug('eligibility eligible', { reason: eligibility.reason });
+        }
+
+        return eligibility;
+    }
+
+    async function claimOffer() {
+        if (state.claimInFlight || state.actionInFlight || state.suspendClaims || previewBlockedByWrapUp()) return null;
+        state.claimInFlight = true;
+        try {
+            const response = await request(state.config.claimUrl, { method: 'POST', allowNoContent: true });
+            state._lastClaim = { status: response?.status ?? null, offer: response?.data?.offer ? (response.data.offer.status || 'offer') : null, reason: response?.data?.reason ?? null };
+            debug('claim response', state._lastClaim);
+            if (!response || response.status === 204 || !response.data?.offer) return null;
+            return handleOffer(response.data.offer, response.status === 201 ? 'claim-created' : 'claim-current');
+        } finally {
+            state.claimInFlight = false;
+        }
+    }
+
+    async function pollOnce() {
+        if (state.destroyed || state.inFlight || state._booting || state.actionInFlight || state.suspendClaims || previewBlockedByWrapUp() || document.hidden) return;
+        state.inFlight = true;
+
+        try {
+            const current = await request(state.config.currentUrl, { method: 'GET', allowNoContent: true });
+            if (state.destroyed) return;
+
+            if (current && current.status !== 204 && current.data?.offer) {
+                await handleOffer(current.data.offer, 'poll-current');
+                return;
+            }
+
+            state._cleaningUp = false;
+            state.currentOffer = null;
+            clearLocalOfferIfStale();
+
+            const eligibility = await checkEligibility();
+            handleEligibilityResult(eligibility);
+            if (!eligibility.eligible) return;
+
+            await claimOffer();
+        } catch (error) {
+            logSoftError('Preview polling failed', error);
+        } finally {
+            state.inFlight = false;
+        }
+    }
+
+    function startPolling(delay) {
+        if (state.pollTimer || state.destroyed || state._booting) return;
+
+        const firstDelay = typeof delay === 'number' ? delay : state.config.pollInterval;
+        state.pollTimer = setTimeout(async function tick() {
+            state.pollTimer = null;
+            await pollOnce();
+            if (!state.destroyed && (!state.currentOffer || state._cleaningUp) && !state.suspendClaims) {
+                startPolling(state._cleaningUp ? 2000 : state.config.pollInterval);
+            }
+        }, firstDelay);
+    }
+
+    function stopPolling() {
+        if (state.pollTimer) {
+            clearTimeout(state.pollTimer);
+            state.pollTimer = null;
+        }
+    }
+
+    async function handleOffer(offer, source) {
+        state.currentOffer = offer;
+        stopPolling();
+
+        if (!ACTIVE_STATUSES.includes(offer.status)) {
+            clearLocalOffer();
+            closeModal();
+            state._cleaningUp = false;
+            state.currentOffer = null;
+            startPolling(AFTER_ACTION_DELAY_MS);
+            return null;
+        }
+
+        // During boot: track the offer in state but suppress all UI.
+        // handleAgentNotReady() will clean up pending offers if the initial
+        // offline fires before onConsoleReadinessChanged exits boot.
+        if (state._booting) {
+            debug('offer deferred during boot', { source, status: offer.status });
+            return offer;
+        }
+
+        if (offer.status === 'accepted') {
+            acquireVisualOwnership(offer);
+            closeModal();
+            if (offer.conversation_id && typeof window.openConversation === 'function') {
+                window.openConversation(offer.conversation_id);
+            }
+            return offer;
+        }
+
+        if (canOwnVisualOffer(offer)) {
+            acquireVisualOwnership(offer);
+            showOfferModal(offer);
+        } else {
+            showOtherTabIndicator();
+        }
+
+        debug('offer handled', { source, status: offer.status });
+        return offer;
+    }
+
+    function canOwnVisualOffer(offer) {
+        const record = readLocalOffer();
+        if (!record || record.token !== offer.token) return true;
+        if (record.owner_tab_id === state.tabId) return true;
+        if (record.status === 'action_in_flight' && record.owner_tab_id !== state.tabId) {
+            return Date.now() - Number(record.updated_at || 0) > OWNER_STALE_MS;
+        }
+        return Date.now() - Number(record.updated_at || 0) > OWNER_STALE_MS;
+    }
+
+    function acquireVisualOwnership(offer) {
+        state.currentOwner = true;
+        writeLocalOffer(offer);
+        startOwnerHeartbeat();
+        hideOtherTabIndicator();
+    }
+
+    function releaseVisualOwnership() {
+        if (!state.storageKey || !state.currentOwner) return;
+        const record = readLocalOffer();
+        if (record?.owner_tab_id === state.tabId) {
+            localStorage.removeItem(state.storageKey);
+        }
+        state.currentOwner = false;
+        stopOwnerHeartbeat();
+    }
+
+    function startOwnerHeartbeat() {
+        stopOwnerHeartbeat();
+        state.ownerHeartbeatTimer = setInterval(function () {
+            if (state.currentOffer && state.currentOwner) {
+                writeLocalOffer(state.currentOffer, state.actionInFlight ? 'action_in_flight' : null);
+            }
+        }, OWNER_HEARTBEAT_MS);
+    }
+
+    function stopOwnerHeartbeat() {
+        if (state.ownerHeartbeatTimer) {
+            clearInterval(state.ownerHeartbeatTimer);
+            state.ownerHeartbeatTimer = null;
+        }
+    }
+
+    function writeLocalOffer(offer, statusOverride) {
+        if (!state.storageKey) return;
+        localStorage.setItem(state.storageKey, JSON.stringify({
+            token: offer.token,
+            owner_tab_id: state.tabId,
+            status: statusOverride || offer.status,
+            updated_at: Date.now(),
+        }));
+    }
+
+    function readLocalOffer() {
+        if (!state.storageKey) return null;
+        try {
+            return JSON.parse(localStorage.getItem(state.storageKey) || 'null');
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function clearLocalOffer() {
+        if (state.storageKey) localStorage.removeItem(state.storageKey);
+        state.currentOwner = false;
+        stopOwnerHeartbeat();
+    }
+
+    function clearLocalOfferIfStale() {
+        const record = readLocalOffer();
+        if (record && Date.now() - Number(record.updated_at || 0) > OWNER_STALE_MS) {
+            localStorage.removeItem(state.storageKey);
+        }
+    }
+
+    function onStorage(event) {
+        if (event.key !== state.storageKey) return;
+
+        const record = readLocalOffer();
+        if (!record) {
+            hideOtherTabIndicator();
+            if (state.currentOffer && !state.currentOwner) {
+                restoreCurrentOffer();
+            }
+            return;
+        }
+
+        if (record.owner_tab_id !== state.tabId && state.currentOffer?.token === record.token) {
+            closeModal();
+            state.currentOwner = false;
+            stopOwnerHeartbeat();
+            showOtherTabIndicator();
+        }
+    }
+
+    function onVisibilityChange() {
+        if (document.hidden) {
+            stopPolling();
+            return;
+        }
+
+        if (state.currentOffer && !state.currentOwner && canOwnVisualOffer(state.currentOffer)) {
+            restoreCurrentOffer();
+            return;
+        }
+
+        if (!state.currentOffer) {
+            pollOnce().finally(function () {
+                if (!state.currentOffer) startPolling();
+            });
+        }
+    }
+
+    function showOfferModal(offer) {
+        ensurePreviewStyles();
+
+        const offerId = offerTimerId(offer);
+        const overlayAlreadyVisible = Boolean(document.getElementById('previewOverlay'));
+        if (
+            offerId
+            && state.activeTimerOfferId === offerId
+            && state.timerInterval
+            && overlayAlreadyVisible
+        ) {
+            updatePreviewBadge();
+            state.offerTimerTick?.();
+            return;
+        }
+
+        closeModal({ stopTimer: !(offerId && state.activeTimerOfferId === offerId && state.timerInterval) });
+
+        const anchor = previewAnchor();
+        if (!anchor) {
+            console.warn('[PreviewDialer] preview offer anchor not found');
+            updatePreviewBadge();
+            return;
+        }
+        window.closeToolsMenu?.();
+        const emailDropdown = document.getElementById('notifDropdown');
+        const chatDropdown = document.getElementById('notifWaDropdown');
+        if (emailDropdown) emailDropdown.style.display = 'none';
+        if (chatDropdown) chatDropdown.style.display = 'none';
+        const overlay = document.createElement('div');
+        overlay.id = 'previewOverlay';
+        overlay.className = 'preview-offer-popover active';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-labelledby', 'previewOfferDialogTitle');
+        overlay.setAttribute('aria-describedby', 'previewOfferDialogDesc');
+
+        const card = document.createElement('div');
+        card.className = 'preview-offer-modal-card';
+        card.innerHTML = renderOfferHtml(offer, true);
+
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+        updatePreviewBadge();
+        schedulePreviewPopoverReposition(overlay);
+        document.addEventListener('mousedown', state.bound.previewDocumentClick, true);
+        window.addEventListener('resize', state.bound.previewReposition);
+        window.addEventListener('scroll', state.bound.previewReposition, true);
+
+        bindModalActions(offer);
+        bindDetailsToggle();
+        if (offerId && state.activeTimerOfferId === offerId && state.timerInterval) {
+            state.offerTimerTick?.();
+        } else {
+            startOfferTimer(offer);
+        }
+    }
+
+    function showAcceptedModal(offer) {
+        if (!window.Swal) return;
+        stopOfferTimer();
+        closeModal();
+        showAcceptedNotice();
+    }
+
+    function showAcceptedNotice() {
+        if (!window.Swal) return;
+        window.Swal.fire({
+            toast: true,
+            position: 'top-end',
+            title: 'Offer accepted',
+            text: 'Call connection will be enabled in the next step.',
+            showConfirmButton: false,
+            timer: 3500,
+            timerProgressBar: true,
+        });
+    }
+
+    function closeModal(options) {
+        const opts = options || {};
+        if (opts.stopTimer !== false) {
+            stopOfferTimer();
+        }
+        document.removeEventListener('mousedown', state.bound.previewDocumentClick, true);
+        window.removeEventListener('resize', state.bound.previewReposition);
+        window.removeEventListener('scroll', state.bound.previewReposition, true);
+        const overlay = document.getElementById('previewOverlay');
+        if (overlay) {
+            overlay.remove();
+        }
+        updatePreviewBadge();
+    }
+
+    function previewAnchor() {
+        return document.getElementById('previewOfferAction');
+    }
+
+    function positionActivePreviewPopover() {
+        const overlay = document.getElementById('previewOverlay');
+        if (!overlay) return;
+        positionPreviewPopover(overlay);
+    }
+
+    function schedulePreviewPopoverReposition(overlay) {
+        positionPreviewPopover(overlay);
+        requestAnimationFrame(function () {
+            positionPreviewPopover(overlay);
+            requestAnimationFrame(function () {
+                positionPreviewPopover(overlay);
+            });
+        });
+        setTimeout(function () {
+            positionPreviewPopover(overlay);
+        }, 80);
+    }
+
+    function positionPreviewPopover(overlay) {
+        const anchor = previewAnchor();
+        if (!anchor || !overlay) return;
+
+        const rect = anchor.getBoundingClientRect();
+        const margin = 12;
+        const width = Math.min(320, Math.max(280, window.innerWidth - (margin * 2)));
+        const left = Math.min(
+            window.innerWidth - width - margin,
+            Math.max(margin, rect.right - width)
+        );
+        const consoleGridTop = document.getElementById('consoleGrid')?.getBoundingClientRect()?.top;
+        const preferredTop = Number.isFinite(consoleGridTop)
+            ? consoleGridTop + POPOVER_HEADER_GAP_PX
+            : rect.bottom + POPOVER_ANCHOR_OFFSET_PX;
+        const top = Math.min(
+            window.innerHeight - margin,
+            Math.max(margin, preferredTop)
+        );
+
+        overlay.style.width = `${width}px`;
+        overlay.style.left = `${left}px`;
+        overlay.style.top = `${top}px`;
+        overlay.style.right = 'auto';
+    }
+
+    function hasPendingVisualOffer() {
+        return Boolean(state.currentOffer && state.currentOffer.status === 'pending');
+    }
+
+    function bindPreviewAnchor() {
+        const anchor = previewAnchor();
+        if (!anchor || anchor.dataset.previewDialerBound === '1') return;
+        anchor.dataset.previewDialerBound = '1';
+        anchor.addEventListener('click', state.bound.previewAnchorClick, true);
+        anchor.addEventListener('keydown', function (event) {
+            if (!hasPendingVisualOffer()) return;
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            event.stopPropagation();
+            togglePreviewPopover();
+        }, true);
+        updatePreviewBadge();
+    }
+
+    function unbindPreviewAnchor() {
+        const anchor = previewAnchor();
+        if (!anchor) return;
+        anchor.removeEventListener('click', state.bound.previewAnchorClick, true);
+        delete anchor.dataset.previewDialerBound;
+        removePreviewBadge();
+    }
+
+    function onPreviewAnchorClick(event) {
+        if (!hasPendingVisualOffer()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        togglePreviewPopover();
+    }
+
+    function togglePreviewPopover() {
+        if (!hasPendingVisualOffer()) return;
+        if (document.getElementById('previewOverlay')) {
+            closeModal({ stopTimer: false });
+        } else {
+            showOfferModal(state.currentOffer);
+        }
+    }
+
+    function onPreviewDocumentClick(event) {
+        const overlay = document.getElementById('previewOverlay');
+        if (!overlay) return;
+        const anchor = previewAnchor();
+        if (overlay.contains(event.target) || anchor?.contains(event.target)) return;
+        closeModal({ stopTimer: false });
+    }
+
+    function updatePreviewBadge() {
+        const anchor = previewAnchor();
+        if (!anchor) return;
+        anchor.classList.toggle('preview-offer-anchor-active', hasPendingVisualOffer());
+        let badge = anchor.querySelector('.preview-offer-anchor-badge');
+        if (!hasPendingVisualOffer()) {
+            if (badge) badge.remove();
+            return;
+        }
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'preview-offer-anchor-badge';
+            badge.setAttribute('aria-label', 'Pending preview offer');
+            anchor.appendChild(badge);
+        }
+    }
+
+    function removePreviewBadge() {
+        const anchor = previewAnchor();
+        if (!anchor) return;
+        anchor.classList.remove('preview-offer-anchor-active');
+        anchor.querySelector('.preview-offer-anchor-badge')?.remove();
+    }
+
+    function renderOfferHtml(offer, withActions) {
+        const customFields = offer.lead?.custom_fields || {};
+        const campaign = offer.campaign?.name || '';
+        const leadList = offer.lead_list?.name || '';
+        const meta = [campaign, leadList].filter(Boolean).map(escapeHtml).join(' · ');
+        const scriptName = offer.script?.name || '';
+        const metaRows = [
+            campaign ? ['Campaign Dialer', campaign] : null,
+            leadList ? ['Source', leadList] : null,
+            scriptName ? ['Script', scriptName] : null,
+        ].filter(Boolean).map(([label, value]) => (
+            `<div class="preview-offer-meta-row"><span>${escapeHtml(label)}:</span> <strong>${escapeHtml(value)}</strong></div>`
+        )).join('');
+        const fieldRows = Object.entries(customFields)
+            .filter(([key, value]) => shouldShowDetailField(key, value))
+            .map(([key, value]) => {
+                const formatted = formatValue(value);
+                const isEmpty = formatted === '';
+                const displayValue = isEmpty ? '—' : formatted;
+                return `<div class="preview-offer-detail-row${isEmpty ? ' is-empty' : ''}"><span>${escapeHtml(key)}</span><strong>${escapeHtml(displayValue)}</strong></div>`;
+            })
+            .join('');
+
+        return `
+            <div class="preview-offer-shell">
+                <div class="preview-offer-header">
+                    <div>
+                        <div id="previewOfferDialogTitle" class="preview-offer-title">PREVIEW CALL</div>
+                        <div id="previewOfferDialogDesc" class="preview-offer-subtitle">Incoming preview offer</div>
+                    </div>
+                    <div id="previewOfferTimer" class="preview-offer-timer">--:--</div>
+                </div>
+                <div class="preview-offer-body">
+                    <div class="preview-offer-phone">${escapeHtml(offer.lead?.phone || '')}</div>
+                    ${metaRows ? `<div class="preview-offer-meta">${metaRows}</div>` : ''}
+                    <button type="button" id="previewDetailsToggle" class="btn btn-secondary btn-lg preview-offer-details-toggle" aria-expanded="false">
+                        <span>View lead details</span><i class="bi bi-chevron-right"></i>
+                    </button>
+                    <div id="previewOfferDetails" class="preview-offer-details" hidden>
+                        <div class="preview-offer-details-title">Lead details</div>
+                        ${fieldRows || '<div class="preview-offer-empty-details">No lead details</div>'}
+                    </div>
+                </div>
+                ${withActions ? `
+                    <div class="preview-offer-actions">
+                        <button type="button" id="previewDeclineBtn" class="btn btn-danger btn-lg preview-offer-action-btn preview-offer-decline-btn"><i class="bi bi-x-circle"></i> Decline</button>
+                        <button type="button" id="previewAcceptBtn" class="btn btn-primary btn-lg preview-offer-action-btn preview-offer-accept-btn"><i class="bi bi-check-lg"></i> Accept</button>
+                    </div>
+                    <div id="previewOfferActionStatus" class="preview-offer-action-status"></div>
+                ` : ''}
+            </div>
+        `;
+    }
+
+    function bindDetailsToggle() {
+        const toggle = document.getElementById('previewDetailsToggle');
+        const details = document.getElementById('previewOfferDetails');
+        if (!toggle || !details) return;
+
+        toggle.addEventListener('click', function () {
+            const expanded = toggle.getAttribute('aria-expanded') === 'true';
+            toggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+            details.hidden = expanded;
+            toggle.innerHTML = expanded
+                ? '<span>View lead details</span><i class="bi bi-chevron-right"></i>'
+                : '<span>Hide lead details</span><i class="bi bi-chevron-down"></i>';
+        });
+    }
+
+    function bindModalActions(offer) {
+        const accept = document.getElementById('previewAcceptBtn');
+        const decline = document.getElementById('previewDeclineBtn');
+        if (accept) accept.addEventListener('click', function () { acceptOffer(offer.token); });
+        if (decline) decline.addEventListener('click', function () { declineOffer(offer.token); });
+    }
+
+    async function acceptOffer(token) {
+        if (state.actionInFlight) return;
+
+        const adapter = window.agentConsoleVoiceAdapter;
+        if (adapter) {
+            if (!adapter.manager?.isReady()) {
+                showActionToast('Voice not ready. Check your SIP connection before accepting.');
+                return;
+            }
+            if (adapter.manager?.callManager?.currentSession) {
+                showActionToast('Already in a call. End the current call before accepting.');
+                return;
+            }
+        }
+
+        state.actionInFlight = true;
+        state.suspendClaims = true;
+        stopOfferTimer();
+        stopPolling();
+        publishActionInFlight(token);
+        closeModal();
+
+        try {
+            const response = await request(urlFor('acceptUrlTemplate', token), { method: 'POST' });
+            if (response?.data?.offer?.status === 'accepted') {
+                const offer = response.data.offer;
+                state.currentOffer = offer;
+                writeLocalOffer(offer);
+
+                if (adapter && offer.call_uuid) {
+                    const phone      = offer.lead?.phone || '';
+                    const campaignId = offer.campaign?.crm_campaign_id || null;
+                    const scriptId   = offer.script?.id || null;
+                    // Forward the backend-built SIP headers and prepared identifiers verbatim —
+                    // Preview uses the same outbound engine as Quick Call (see accept()).
+                    const interaction = adapter.startPreviewCallWithUuid(phone, campaignId, scriptId, offer.call_uuid, {
+                        extraHeaders:   offer.extra_headers || [],
+                        callerIdNumber: offer.caller_id?.number ?? null,
+                        queueName:      offer.queue_name ?? null,
+                        campaignName:   offer.campaign?.name ?? null,
+                        scriptName:     offer.script?.name ?? null,
+                        conversationId: offer.conversation_id ?? null,
+                        voiceCallId:    offer.voice_call_id ?? null,
+                    });
+                    if (interaction) {
+                        const t = offer.token;
+                        Promise.resolve(interaction._persistPromise).then(async function () {
+                            if (interaction.conversationId) {
+                                await linkOfferConversation(t, interaction.conversationId);
+                                interaction.previewConversationLinked = true;
+                                adapter.fetchPersistedConversationDetail?.(interaction, { force: true });
+                            }
+                        }).catch(function () {});
+                    }
+                }
+                return;
+            }
+            throw new Error('Unexpected accept response');
+        } catch (error) {
+            await reconcileActionFailure(token, 'Unable to accept the offer.');
+        } finally {
+            state.suspendClaims = false;
+            state.actionInFlight = false;
+        }
+    }
+
+    async function linkOfferConversation(token, conversationId) {
+        if (!token || !conversationId || !state.config?.linkUrlTemplate) return;
+        try {
+            return await request(urlFor('linkUrlTemplate', token), {
+                method: 'PATCH',
+                body: JSON.stringify({ conversation_id: conversationId }),
+            });
+        } catch (err) {
+            logSoftError('Preview link conversation failed', err);
+        }
+    }
+
+    async function recoverStaleCallAfterRefresh(offer, conversationId) {
+        const targetOffer = offer || state.currentOffer;
+        const token = targetOffer?.token || targetOffer?.reservation_token || targetOffer?.reservationToken || null;
+        if (!targetOffer || String(targetOffer.status || '').toLowerCase() !== 'accepted') return null;
+        if (!token || !conversationId || !state.config?.recoverStaleCallUrlTemplate) return null;
+
+        const response = await request(urlFor('recoverStaleCallUrlTemplate', token), {
+            method: 'POST',
+            body: JSON.stringify({ conversation_id: conversationId }),
+        });
+
+        const recoveredOffer = response?.data?.offer || null;
+        if (response?.data?.ok && recoveredOffer && !ACTIVE_STATUSES.includes(recoveredOffer.status)) {
+            if (state.currentOffer?.token === recoveredOffer.token || state.currentOffer?.token === targetOffer.token) {
+                state.currentOffer = null;
+                releaseVisualOwnership();
+                clearLocalOffer();
+            }
+            state.suspendClaims = true;
+            state.voiceWrapUpPending = true;
+            stopPolling();
+            closeModal();
+        }
+
+        return response?.data || null;
+    }
+
+    async function declineOffer(token) {
+        if (state.actionInFlight) return;
+        state.actionInFlight = true;
+        state.suspendClaims = true;
+        stopOfferTimer();
+        stopPolling();
+        publishActionInFlight(token);
+        closeModal();
+
+        try {
+            const response = await request(urlFor('declineUrlTemplate', token), { method: 'POST' });
+            if (response?.data?.offer?.status === 'declined') {
+                state.currentOffer = null;
+                clearLocalOffer();
+                closeModal();
+                startPolling(AFTER_ACTION_DELAY_MS);
+                return;
+            }
+            throw new Error('Unexpected decline response');
+        } catch (error) {
+            await reconcileActionFailure(token, 'Unable to decline the offer.');
+        } finally {
+            state.suspendClaims = false;
+            state.actionInFlight = false;
+        }
+    }
+
+    function publishActionInFlight(token) {
+        if (!state.currentOffer || state.currentOffer.token !== token) return;
+        writeLocalOffer(state.currentOffer, 'action_in_flight');
+    }
+
+    async function reconcileActionFailure(token, message) {
+        try {
+            const response = await request(state.config.currentUrl, { method: 'GET', allowNoContent: true });
+            if (!response || response.status === 204 || !response.data?.offer) {
+                state.currentOffer = null;
+                clearLocalOffer();
+                startPolling(AFTER_ACTION_DELAY_MS);
+                return;
+            }
+
+            const offer = response.data.offer;
+            state.currentOffer = offer;
+
+            if (offer.token === token && offer.status === 'pending') {
+                acquireVisualOwnership(offer);
+                showOfferModal(offer);
+                showActionToast(message);
+                return;
+            }
+
+            if (offer.status === 'accepted') {
+                acquireVisualOwnership(offer);
+                showActionToast(message);
+                return;
+            }
+
+            clearLocalOffer();
+            state.currentOffer = null;
+            startPolling(AFTER_ACTION_DELAY_MS);
+        } catch (error) {
+            logSoftError('Preview action reconciliation failed', error);
+            showActionToast(message);
+            setTimeout(function () {
+                restoreCurrentOffer().finally(function () {
+                    if (!state.currentOffer) startPolling(state.config.pollInterval);
+                });
+            }, AFTER_ACTION_DELAY_MS);
+        }
+    }
+
+    function showActionToast(message) {
+        if (window.Swal) {
+            window.Swal.fire({
+                toast: true,
+                position: 'top-end',
+                title: message,
+                showConfirmButton: false,
+                timer: 3500,
+                timerProgressBar: true,
+            });
+        }
+    }
+
+    async function expireOffer(token) {
+        if (state.expireInFlight) return;
+        state.expireInFlight = true;
+        setModalBusy(true, 'This offer expired.');
+        stopOfferTimer();
+
+        try {
+            await request(urlFor('expireUrlTemplate', token), { method: 'POST' });
+        } catch (error) {
+            logSoftError('Preview expire failed', error);
+        } finally {
+            state.expireInFlight = false;
+            // Expire is terminal for this offer: fully reset offer + claim-blocking state and
+            // force a fresh poll -> claim cycle. Without this the agent could be left only
+            // polling GET /current (which now returns { ok:true, offer:null }) while a stale
+            // suspendClaims / actionInFlight flag or a stale pollTimer silently blocks claim.
+            resumePreviewAfterTerminalOffer('expire');
+        }
+    }
+
+    // Shared cleanup + resume used after a terminal offer event in THIS tab (currently the
+    // timeout-expire path). Clears the active offer, timer, modal and cross-tab ownership,
+    // resets claim-blocking flags, and — unless voice wrap-up is pending — restarts polling
+    // from a clean slate so pollOnce() reaches its eligibility -> claim step again.
+    //
+    // It intentionally does NOT touch state.claimInFlight / state.inFlight: those are owned by
+    // claimOffer()/pollOnce() and self-clear in their finally blocks, so leaving them alone
+    // preserves the single-flight protection against parallel claims (requirement 7).
+    function resumePreviewAfterTerminalOffer(source) {
+        stopOfferTimer();
+        closeModal();
+        releaseVisualOwnership();
+        clearLocalOffer();
+
+        state.currentOffer = null;
+        state._cleaningUp = false;
+        state.actionInFlight = false;
+        state.suspendClaims = previewBlockedByWrapUp();
+
+        debug('preview resume after terminal offer', { source, suspendClaims: state.suspendClaims });
+
+        if (state.suspendClaims) {
+            stopPolling();
+            return;
+        }
+
+        // Force a fresh poll cycle even if a stale pollTimer is still registered, so the
+        // agent immediately continues toward the next claim.
+        stopPolling();
+        startPolling(AFTER_ACTION_DELAY_MS);
+    }
+
+    function handleAgentNotReady() {
+        state.suspendClaims = true;
+
+        if (!state.currentOffer || state.currentOffer.status !== 'pending') return;
+        const token = state.currentOffer.token;
+
+        stopOfferTimer();
+        closeModal();
+        state.currentOffer = null;
+        clearLocalOffer();
+
+        if (state.expireInFlight || state._notReadyExpirePromise) return;
+
+        state.expireInFlight = true;
+        state._notReadyExpirePromise = request(urlFor('expireUrlTemplate', token), { method: 'POST' })
+            .catch(function (err) { logSoftError('Preview expire on not-ready failed', err); })
+            .finally(function () {
+                state.expireInFlight = false;
+                state._notReadyExpirePromise = null;
+                if (state._resumeRequested && !state.destroyed) {
+                    state._resumeRequested = false;
+                    const s = typeof window.getAgentConsoleStatus === 'function'
+                        ? window.getAgentConsoleStatus()
+                        : null;
+                    if (s === 'ready') {
+                        resumeAfterReady();
+                    }
+                }
+            });
+
+        const sForToast = typeof window.getAgentConsoleStatus === 'function'
+            ? window.getAgentConsoleStatus()
+            : null;
+        if (sForToast !== 'ready') {
+            showActionToast('Preview offer expired — set status to Ready to receive offers.');
+        }
+    }
+
+    function resumeAfterReady() {
+        if (state._notReadyExpirePromise) {
+            state._resumeRequested = true;
+            return;
+        }
+
+        state._resumeRequested = false;
+        if (previewBlockedByWrapUp()) {
+            state.suspendClaims = true;
+            stopPolling();
+            return;
+        }
+        state.suspendClaims = false;
+
+        if (state.destroyed) return;
+        if (state.currentOffer && state.currentOffer.status === 'accepted') return;
+        if (state.pollTimer) return;
+
+        if (state.currentOffer && state.currentOffer.status !== 'accepted') {
+            state.currentOffer = null;
+        }
+
+        pollOnce().finally(function () {
+            if (!state.destroyed && !state.currentOffer && !state.suspendClaims && !state.pollTimer) {
+                startPolling(state.config.pollInterval);
+            }
+        });
+    }
+
+    function onAgentStatusChanged(status) {
+        if (status === 'paused' || status === 'offline') {
+            handleAgentNotReady();
+        } else if (status === 'ready' && !state._booting) {
+            // During boot, defer to onConsoleReadinessChanged to start polling.
+            resumeAfterReady();
+        }
+    }
+
+    // Called by the voice adapter (or blade when no voice) once all boot conditions
+    // are confirmed: JsSIP registered, ownership resolved, initial offline applied.
+    // This is the ONLY gate that allows Preview to start claiming leads.
+    function onConsoleReadinessChanged(readiness) {
+        if (!state.initialized || state.destroyed) return;
+        if (!readiness.bootComplete) return;
+
+        state._booting = false;
+
+        const agentReady = readiness.agentStatus === 'ready';
+        const voiceOk    = readiness.voiceRegistered && readiness.voiceSessionOwned;
+
+        if (!agentReady || !voiceOk || previewBlockedByWrapUp()) {
+            if (state.currentOffer?.status === 'accepted') {
+                state.suspendClaims = true;
+                acquireVisualOwnership(state.currentOffer);
+                closeModal();
+                if (state.currentOffer.conversation_id && typeof window.openConversation === 'function') {
+                    window.openConversation(state.currentOffer.conversation_id);
+                }
+                debug('console readiness: accepted offer recovered while not ready', readiness);
+                return;
+            }
+
+            // Not ready — ensure claims are suspended.
+            // Pending-offer cleanup (if any) is handled by handleAgentNotReady() which
+            // fires via onAgentStatusChanged when the initial offline is applied.
+            if (!state.suspendClaims) {
+                state.suspendClaims = true;
+            }
+            debug('console readiness: not ready', readiness);
+            return;
+        }
+
+        // All conditions met — start normal operation.
+        state.suspendClaims = false;
+
+        if (state.pollTimer || state.currentOffer?.status === 'accepted') return;
+
+        restoreCurrentOffer().finally(function() {
+            if (!state.destroyed && !state.currentOffer && !state.suspendClaims && !state.pollTimer) {
+                startPolling();
+            }
+        });
+    }
+
+    function onVoiceCallEnded(callUuid) {
+        if (!state.initialized || state.destroyed) return;
+        if (!state.currentOffer || state.currentOffer.call_uuid !== callUuid) return;
+
+        state._cleaningUp = true;
+        state.currentOffer = null;
+        releaseVisualOwnership();
+        clearLocalOffer();
+        state.suspendClaims = previewBlockedByWrapUp();
+
+        if (!state.suspendClaims && !state.pollTimer) {
+            startPolling(2000);
+        }
+    }
+
+    function setVoiceWrapUpPending(pending) {
+        state.voiceWrapUpPending = Boolean(pending);
+        if (state.voiceWrapUpPending) {
+            state.suspendClaims = true;
+            stopPolling();
+            closeModal();
+            return;
+        }
+
+        if (state.destroyed || state._booting) return;
+        const status = typeof window.getAgentConsoleStatus === 'function'
+            ? window.getAgentConsoleStatus()
+            : null;
+        if (status === 'ready') {
+            resumeAfterReady();
+        }
+    }
+
+    function previewBlockedByWrapUp() {
+        if (state.voiceWrapUpPending) return true;
+        const adapter = window.agentConsoleVoiceAdapter;
+        return Boolean(adapter?.hasPendingVoiceWrapUp?.());
+    }
+
+    function handleEligibilityResult(eligibility) {
+        if (eligibility?.reason === 'agent_in_wrap_up') {
+            setVoiceWrapUpPending(true);
+        }
+    }
+
+    function startOfferTimer(offer) {
+        stopOfferTimer();
+        const token = offer.token;
+        const offerId = offerTimerId(offer);
+        const expiresAt = Date.parse(offer.expires_at || '');
+        const serverNow = Date.parse(offer.server_now || '');
+        const hasServerNow = Number.isFinite(serverNow);
+        const serverOffsetMs = hasServerNow ? serverNow - Date.now() : 0;
+        const timeoutSeconds = Number.parseInt(offer.timeout_seconds, 10);
+        const maxSeconds = Number.isFinite(timeoutSeconds) && timeoutSeconds > 0 ? timeoutSeconds : null;
+        state.activeTimerOfferId = offerId || token || null;
+        state.offerTimerLastSeconds = null;
+
+        function tick() {
+            const el = document.getElementById('previewOfferTimer');
+            if (!Number.isFinite(expiresAt)) return;
+
+            const adjustedNowMs = Date.now() + serverOffsetMs;
+            const remainingMs = expiresAt - adjustedNowMs;
+            if (remainingMs <= 0) {
+                if (el) {
+                    el.textContent = '00:00';
+                    el.classList.remove('preview-offer-timer-warning');
+                    el.classList.add('preview-offer-timer-danger');
+                }
+                expireOffer(token);
+                return;
+            }
+
+            if (!el) return;
+
+            let seconds = Math.max(0, Math.ceil(remainingMs / 1000));
+            if (maxSeconds !== null) {
+                seconds = Math.min(seconds, maxSeconds);
+            }
+            if (state.offerTimerLastSeconds !== null && state.activeTimerOfferId === (offerId || token || null)) {
+                seconds = Math.min(seconds, state.offerTimerLastSeconds);
+            }
+            state.offerTimerLastSeconds = seconds;
+            const mm = String(Math.floor(seconds / 60)).padStart(2, '0');
+            const ss = String(seconds % 60).padStart(2, '0');
+            el.textContent = `${mm}:${ss}`;
+            el.classList.toggle('preview-offer-timer-warning', seconds <= 15 && seconds > 5);
+            el.classList.toggle('preview-offer-timer-danger', seconds <= 5);
+        }
+
+        state.offerTimerTick = tick;
+        tick();
+        state.timerInterval = setInterval(tick, 1000);
+    }
+
+    function stopOfferTimer() {
+        if (state.timerInterval) {
+            clearInterval(state.timerInterval);
+            state.timerInterval = null;
+        }
+        state.activeTimerOfferId = null;
+        state.offerTimerTick = null;
+        state.offerTimerLastSeconds = null;
+    }
+
+    function offerTimerId(offer) {
+        return offer?.id ?? offer?.token ?? offer?.reservation_token ?? offer?.reservationToken ?? null;
+    }
+
+    function setModalBusy(busy, text) {
+        const accept = document.getElementById('previewAcceptBtn');
+        const decline = document.getElementById('previewDeclineBtn');
+        const status = document.getElementById('previewOfferActionStatus');
+        if (accept) accept.disabled = busy;
+        if (decline) decline.disabled = busy;
+        if (status) status.textContent = text || '';
+    }
+
+    function handleActionError(error) {
+        const code = error?.payload?.error || error?.payload?.reason;
+        if (code === 'campaign_not_running') {
+            setModalBusy(true, 'The campaign is no longer active.');
+            if (state.currentOffer?.token) expireOffer(state.currentOffer.token);
+            return;
+        }
+        logSoftError('Preview action failed', error);
+    }
+
+    async function request(url, options) {
+        const opts = Object.assign({ method: 'GET', allowNoContent: false, body: undefined }, options || {});
+        const fetchOpts = {
+            method: opts.method,
+            credentials: 'same-origin',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': state.config.csrfToken,
+            },
+        };
+        if (opts.body !== undefined) {
+            fetchOpts.body = opts.body;
+        }
+        const response = await fetch(url, fetchOpts);
+
+        if (response.status === 204 && opts.allowNoContent) {
+            return { status: 204, data: null };
+        }
+
+        const data = await response.json().catch(function () { return null; });
+        if (!response.ok) {
+            const error = new Error(data?.message || data?.error || data?.reason || `HTTP ${response.status}`);
+            error.status = response.status;
+            error.payload = data;
+            throw error;
+        }
+
+        return { status: response.status, data };
+    }
+
+    function urlFor(templateName, token) {
+        return state.config[templateName].replace('__TOKEN__', encodeURIComponent(token));
+    }
+
+    function showOtherTabIndicator() {
+        let el = document.getElementById('previewDialerOtherTab');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'previewDialerOtherTab';
+            el.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:9999;background:#0f172a;color:#fff;border-radius:999px;padding:8px 12px;font-size:12px;box-shadow:0 8px 24px rgba(15,23,42,.25);';
+            el.textContent = 'Preview active in another tab';
+            document.body.appendChild(el);
+        }
+        el.style.display = 'block';
+    }
+
+    function hideOtherTabIndicator() {
+        const el = document.getElementById('previewDialerOtherTab');
+        if (el) el.style.display = 'none';
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function formatValue(value) {
+        if (value === null || value === undefined || value === '') return '';
+        if (typeof value === 'object') return JSON.stringify(value);
+        return String(value);
+    }
+
+    function shouldShowDetailField(key, value) {
+        const normalized = String(key || '').trim().toLowerCase();
+        if (!normalized || normalized.startsWith('_') || DETAIL_EXCLUDED_KEYS.includes(normalized)) return false;
+        return true;
+    }
+
+    function ensurePreviewStyles() {
+        if (document.getElementById('preview-offer-styles')) return;
+
+        const style = document.createElement('style');
+        style.id = 'preview-offer-styles';
+        style.textContent = `
+            .preview-offer-popover {
+                position: fixed;
+                z-index: 70;
+                display: none;
+                min-width: min(280px, calc(100vw - 24px));
+                max-width: calc(100vw - 24px);
+                pointer-events: none;
+                transform: none !important;
+                rotate: none !important;
+                scale: none !important;
+                perspective: none !important;
+            }
+            .preview-offer-popover.active {
+                display: block;
+            }
+            .preview-offer-popover::before {
+                content: '';
+                position: absolute;
+                top: -8px;
+                right: 18px;
+                width: 0;
+                height: 0;
+                border-left: 8px solid transparent;
+                border-right: 8px solid transparent;
+                border-bottom: 8px solid var(--border);
+                transform: none !important;
+                rotate: none !important;
+                scale: none !important;
+            }
+            .preview-offer-popover::after {
+                content: '';
+                position: absolute;
+                top: -7px;
+                right: 19px;
+                width: 0;
+                height: 0;
+                border-left: 7px solid transparent;
+                border-right: 7px solid transparent;
+                border-bottom: 7px solid var(--bg-th);
+                transform: none !important;
+                rotate: none !important;
+                scale: none !important;
+            }
+            .preview-offer-modal-card {
+                width: 100%;
+                border-radius: 10px;
+                overflow: hidden;
+                background: var(--bg-page);
+                border: 1px solid var(--border);
+                box-shadow: 0 10px 26px rgba(15,23,42,.16);
+                max-height: min(560px, calc(100vh - 72px));
+                overflow-y: visible;
+                pointer-events: auto;
+                position: relative;
+                z-index: 1;
+                transform: none !important;
+                rotate: none !important;
+                scale: none !important;
+                perspective: none !important;
+            }
+            .preview-offer-popover:hover,
+            .preview-offer-popover *:hover,
+            .preview-offer-modal-card:hover {
+                transform: none !important;
+                rotate: none !important;
+                scale: none !important;
+                perspective: none !important;
+            }
+            #previewOfferAction.preview-offer-anchor-active {
+                position: relative;
+                opacity: 1 !important;
+                cursor: pointer !important;
+                box-shadow: none;
+            }
+            #previewOfferAction.preview-offer-anchor-active::before {
+                content: '';
+                position: absolute;
+                inset: -3px;
+                border-radius: inherit;
+                border: 1px solid rgba(220,38,38,.28);
+                box-shadow: 0 0 0 0 rgba(220,38,38,.14);
+                pointer-events: none;
+                z-index: 0;
+                transform: none !important;
+                rotate: none !important;
+                scale: none !important;
+                animation: previewOfferAnchorPulse 1.9s ease-out infinite;
+            }
+            #previewOfferAction.preview-offer-anchor-active > i {
+                position: relative;
+                z-index: 1;
+            }
+            .preview-offer-anchor-badge {
+                position: absolute;
+                top: -1px;
+                right: -1px;
+                width: 9px;
+                height: 9px;
+                border-radius: 999px;
+                background: var(--danger, #dc2626);
+                border: 2px solid #fff;
+                display: block;
+                pointer-events: none;
+                z-index: 3;
+            }
+            @keyframes previewOfferAnchorPulse {
+                0% {
+                    opacity: .65;
+                    box-shadow: 0 0 0 0 rgba(220,38,38,.16);
+                }
+                70% {
+                    opacity: .18;
+                    box-shadow: 0 0 0 7px rgba(220,38,38,0);
+                }
+                100% {
+                    opacity: 0;
+                    box-shadow: 0 0 0 7px rgba(220,38,38,0);
+                }
+            }
+            .preview-offer-modal-card *,
+            .preview-offer-modal-card button,
+            .preview-offer-details-toggle,
+            .preview-offer-actions button {
+                font-family: inherit;
+            }
+            .preview-offer-shell {
+                color: var(--text-strong);
+            }
+            .preview-offer-header {
+                display: flex;
+                align-items: flex-start;
+                justify-content: space-between;
+                gap: 8px;
+                padding: 8px 12px;
+                border-bottom: 1px solid var(--border);
+                background: var(--bg-th);
+            }
+            .preview-offer-title {
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: .08em;
+                line-height: 1.2;
+            }
+            .preview-offer-subtitle {
+                margin-top: 2px;
+                font-size: 11px;
+                color: var(--text-muted);
+            }
+            .preview-offer-timer {
+                flex: 0 0 auto;
+                min-width: 46px;
+                padding: 3px 7px;
+                border-radius: 999px;
+                background: var(--bg-card);
+                color: var(--text-strong);
+                font-size: 12px;
+                font-weight: 800;
+                text-align: center;
+                line-height: 1.1;
+            }
+            .preview-offer-timer-warning {
+                background: #fef3c7;
+                color: #92400e;
+            }
+            .preview-offer-timer-danger {
+                background: #fee2e2;
+                color: #991b1b;
+            }
+            .preview-offer-body {
+                padding: 10px 12px;
+            }
+            .preview-offer-phone {
+                font-size: 19px;
+                font-weight: 600;
+                line-height: 1.1;
+                letter-spacing: 0;
+                color: var(--text-strong);
+                word-break: break-word;
+            }
+            .preview-offer-meta {
+                margin-top: 5px;
+                font-size: 12px;
+                line-height: 1.25;
+                color: var(--text-mid);
+            }
+            .preview-offer-meta-row {
+                margin-top: 3px;
+                color: var(--text-muted);
+            }
+            .preview-offer-meta-row:first-child {
+                margin-top: 0;
+            }
+            .preview-offer-meta-row span {
+                color: var(--text-muted);
+            }
+            .preview-offer-meta-row strong {
+                color: var(--text-strong);
+                font-weight: 600;
+            }
+            .preview-offer-script {
+                margin-top: 4px;
+                font-size: 12px;
+                line-height: 1.25;
+                color: var(--text-mid);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .preview-offer-details-toggle {
+                margin-top: 8px;
+                min-height: 30px;
+                padding: 5px 8px;
+                font-size: 12px;
+                line-height: 1.2;
+            }
+            .preview-offer-details {
+                margin-top: 8px;
+                overflow: visible;
+                border: 1px solid var(--border);
+                border-radius: var(--radius-sm);
+                padding: 6px 10px;
+                background: var(--bg-card);
+            }
+            .preview-offer-details-title {
+                margin-bottom: 6px;
+                font-size: 12px;
+                font-weight: 600;
+                color: var(--text-strong);
+            }
+            .preview-offer-detail-row {
+                display: grid;
+                grid-template-columns: minmax(90px, 38%) 1fr;
+                gap: 8px;
+                padding: 4px 0;
+                border-top: 1px solid var(--border);
+                font-size: 12px;
+                line-height: 1.25;
+            }
+            .preview-offer-detail-row:first-of-type {
+                border-top: 0;
+            }
+            .preview-offer-detail-row span {
+                color: var(--text-muted);
+                font-weight: 500;
+                min-width: 0;
+                overflow-wrap: anywhere;
+            }
+            .preview-offer-detail-row strong {
+                color: var(--text-strong);
+                font-weight: 500;
+                min-width: 0;
+                overflow-wrap: anywhere;
+            }
+            .preview-offer-detail-row.is-empty strong {
+                color: var(--text-muted);
+                font-weight: 400;
+            }
+            .preview-offer-empty-details {
+                font-size: 12px;
+                color: var(--text-muted);
+            }
+            .preview-offer-actions {
+                display: flex;
+                justify-content: flex-end;
+                gap: 8px;
+                padding: 8px 12px 0;
+                border-top: 1px solid var(--border);
+                
+            }
+            .preview-offer-action-btn {
+                min-height: 31px;
+                padding: 6px 10px;
+                font-size: 12px;
+                line-height: 1.2;
+            }
+            .preview-offer-action-btn:disabled {
+                opacity: .6;
+                cursor: not-allowed;
+            }
+            .preview-offer-action-status {
+                min-height: 14px;
+                padding: 0 12px 8px;
+                font-size: 11px;
+                color: var(--text-muted);
+                text-align: right;
+            }
+            .preview-offer-accepted {
+                padding: 0 12px 12px;
+                font-size: 12px;
+                font-weight: 800;
+                color: #166534;
+            }
+            .preview-offer-accepted span {
+                display: block;
+                margin-top: 3px;
+                font-size: 11px;
+                font-weight: 600;
+                color: #475569;
+            }
+            @media (max-width: 520px) {
+                .preview-offer-header,
+                .preview-offer-body,
+                .preview-offer-actions {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                }
+                .preview-offer-phone {
+                    font-size: 22px;
+                }
+                .preview-offer-actions {
+                    flex-direction: column-reverse;
+                }
+                .preview-offer-action-btn,
+                .preview-offer-details-toggle {
+                    width: 100%;
+                    justify-content: center;
+                }
+            }
+            .preview-offer-details-toggle:focus:not(:focus-visible),
+            .preview-offer-action-btn:focus:not(:focus-visible) {
+                outline: none;
+                box-shadow: none;
+            }
+            .preview-offer-details-toggle:focus-visible,
+            .preview-offer-action-btn:focus-visible {
+                outline: 2px solid var(--primary);
+                outline-offset: 2px;
+                box-shadow: none;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    function logSoftError(message, error) {
+        const now = Date.now();
+        if (now - state.lastErrorAt < 10000) return;
+        state.lastErrorAt = now;
+        if (window.console && console.debug) {
+            console.debug('[preview-dialer]', message, {
+                status: error?.status,
+                code: error?.payload?.error || error?.payload?.reason || error?.message,
+            });
+        }
+    }
+
+    function previewDebugEnabled() {
+        if (window.PREVIEW_DIALER_DEBUG) return true;
+        try {
+            return Boolean(window.localStorage) && window.localStorage.getItem('xedik.voice.debug') === '1';
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function debug(message, data) {
+        if (!previewDebugEnabled() || !window.console) return;
+        // Visible channel (console.log) under localStorage['xedik.voice.debug']==='1'.
+        window.console.log('[xedik.voice][preview] ' + message, data || {});
+    }
+
+    // Structured snapshot of the Preview polling/claim flags — consumed by
+    // window.xedik_DEBUG_SNAPSHOT() and useful for the agent_not_ready diagnosis.
+    function debugSnapshot() {
+        return {
+            suspendClaims: state.suspendClaims,
+            actionInFlight: state.actionInFlight,
+            inFlight: state.inFlight,
+            claimInFlight: state.claimInFlight,
+            expireInFlight: state.expireInFlight,
+            _cleaningUp: state._cleaningUp,
+            _booting: state._booting,
+            currentOffer_id: state.currentOffer?.id ?? null,
+            currentOffer_status: state.currentOffer?.status ?? null,
+            currentOffer_token: state.currentOffer?.token ?? null,
+            currentOwner: state.currentOwner,
+            voiceWrapUpPending: state.voiceWrapUpPending,
+            pollTimer_active: Boolean(state.pollTimer),
+            last_eligibility: state._lastEligibility ?? null,
+            last_claim: state._lastClaim ?? null,
+        };
+    }
+
+    window.PreviewDialerAgent = {
+        init,
+        destroy,
+        checkEligibility,
+        restoreCurrentOffer,
+        claimOffer,
+        acceptOffer,
+        declineOffer,
+        expireOffer,
+        onAgentStatusChanged,
+        onConsoleReadinessChanged,
+        resumeAfterReady,
+        onVoiceCallEnded,
+        setVoiceWrapUpPending,
+        linkOfferConversation,
+        recoverStaleCallAfterRefresh,
+        ensureCurrentOfferForRecovery,
+        debugSnapshot,
+        __initialized: true,
+        __state: state,
+        __test: {
+            escapeHtml,
+            formatValue,
+            readConfig,
+            canOwnVisualOffer,
+            shouldShowDetailField,
+            OWNER_STALE_MS,
+        },
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init, { once: true });
+    } else {
+        init();
+    }
+})();

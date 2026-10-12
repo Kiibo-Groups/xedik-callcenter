@@ -1,0 +1,1376 @@
+@extends('layouts.app')
+
+@section('title', 'Agent Console')
+@section('page-title', 'Console')
+@section('page-subtitle', 'Agent workspace')
+
+@section('header-actions')
+{{-- Status selector --}}
+<div style="display:flex;align-items:center;gap:8px;">
+    <div id="statusIndicator" style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:99px;background:var(--bg-th);border:1px solid var(--border);cursor:pointer;" onclick="toggleStatusMenu()">
+        <span id="statusDot" style="width:8px;height:8px;border-radius:50%;background:#22c55e;"></span>
+        <span id="statusLabel" style="font-size:13px;font-weight:600;color:var(--text-strong);">
+            {{ $session?->status === 'ready' ? 'Ready' : ($session?->status === 'paused' ? 'Paused' : 'Offline') }}
+        </span>
+        <i class="bi bi-chevron-down" style="font-size:11px;color:var(--text-muted);"></i>
+    </div>
+
+    {{-- Status dropdown --}}
+    <div id="statusMenu" style="display:none;position:absolute;top:56px;right:180px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-lg);z-index:999;min-width:200px;padding:8px;">
+        <div onclick="setStatus('ready')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius-sm);cursor:pointer;" onmouseover="this.style.background='var(--bg-th)'" onmouseout="this.style.background=''">
+            <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;"></span>
+            <span style="font-size:13px;font-weight:500;">Ready</span>
+        </div>
+        <div style="border-top:1px solid var(--border);margin:4px 0;padding-top:4px;">
+            <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;padding:4px 12px;">Pause Reasons</div>
+            @foreach($pauseReasons as $reason)
+            <div onclick="setStatus('paused', {{ $reason->id }}, '{{ $reason->name }}', '{{ $reason->color }}')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius-sm);cursor:pointer;" onmouseover="this.style.background='var(--bg-th)'" onmouseout="this.style.background=''">
+                <span style="width:8px;height:8px;border-radius:50%;background:{{ $reason->color }};flex-shrink:0;"></span>
+                <div>
+                    <div style="font-size:13px;font-weight:500;">{{ $reason->name }}</div>
+                    @if($reason->max_minutes)
+                    <div style="font-size:11px;color:var(--text-muted);">Max {{ $reason->max_minutes }} min</div>
+                    @endif
+                </div>
+            </div>
+            @endforeach
+        </div>
+        <div style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px;">
+            <div onclick="setStatus('offline')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius-sm);cursor:pointer;" onmouseover="this.style.background='var(--bg-th)'" onmouseout="this.style.background=''">
+            <span style="width:8px;height:8px;border-radius:50%;background:#94a3b8;flex-shrink:0;"></span>
+            <span style="font-size:13px;font-weight:500;">End Session</span>
+        </div>
+        </div>
+    </div>
+</div>
+
+{{-- Timer --}}
+<div style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:99px;background:var(--bg-th);border:1px solid var(--border);">
+    <i class="bi bi-clock" style="font-size:13px;color:var(--text-muted);"></i>
+    <span id="statusTimer" style="font-size:13px;font-weight:600;font-family:monospace;color:var(--text-strong);">00:00:00</span>
+</div>
+
+{{-- Notifications --}}
+<div style="position:relative;">
+    <button class="theme-btn" id="notifBtn" onclick="toggleNotifications()">
+        <i class="bi bi-envelope-fill"></i>
+        @if($conversations->where('status','pending')->count() > 0)
+        <span style="position:absolute;top:-2px;right:-2px;width:16px;height:16px;background:var(--danger);border-radius:50%;font-size:9px;font-weight:700;color:white;display:flex;align-items:center;justify-content:center;">
+            {{ $conversations->where('status','pending')->count() }}
+        </span>
+        @endif
+    </button>
+    {{-- Notifications dropdown --}}
+        <div id="notifDropdown" style="display:none;position:absolute;top:44px;right:0;width:320px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-lg);z-index:999;">
+            <div id="notifHeader" style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:14px;font-weight:600;color:var(--text-strong);">Email</span>
+                <a href="#" onclick="markAllRead()" style="font-size:12px;color:var(--primary);">Mark all read</a>
+            </div>
+            <div class="notif-item" style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">Loading...</div>
+        </div>
+    </div>
+</div>
+@endsection
+
+@section('content')
+@if($conversations->isEmpty())
+<div id="consoleGrid" style="display:grid;grid-template-columns:1fr;gap:0;height:calc(100vh - var(--header-h));margin:-24px;overflow:hidden;">
+    <div id="messagePanel" style="display:flex;flex-direction:column;background:var(--bg-page);">
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;color:var(--text-muted);">
+            <i class="bi bi-inbox" style="font-size:64px;opacity:0.3;"></i>
+            <div style="font-size:16px;font-weight:600;color:var(--text-strong);">No active conversations</div>
+            <div style="font-size:13px;">New conversations will appear here automatically</div>
+        </div>
+    </div>
+    <div id="conversationList" style="display:none;"></div>
+    <div id="leadPanel" style="display:none;"></div>
+</div>
+@else
+<div  id="consoleGrid" style="display:grid;grid-template-columns:280px 1fr 300px;gap:0;height:calc(100vh - var(--header-h));margin:-24px;overflow:hidden;">
+
+    {{-- COLUMNA IZQUIERDA — Lista de conversaciones --}}
+    <div style="border-right:1px solid var(--border);display:flex;flex-direction:column;background:var(--bg-card);">
+        {{-- Tabs --}}
+        <div style="display:flex;border-bottom:1px solid var(--border);padding:0 8px;">
+            <button class="console-tab active" data-tab="email" onclick="filterTab('email')">
+                <i class="bi bi-envelope"></i> Email
+            </button>
+            <button class="console-tab" data-tab="chat" onclick="filterTab('chat')">
+                <i class="bi bi-chat"></i> Chat
+            </button>
+            <button class="console-tab" data-tab="all" onclick="filterTab('all')">
+                <i class="bi bi-grid"></i> All
+            </button>
+            <button onclick="openCompose()" style="margin-left:auto;margin-top:8px;margin-bottom:8px;padding:4px 10px;border-radius:var(--radius-sm);background:var(--primary);color:white;border:none;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:4px;">
+                <i class="bi bi-pencil-square"></i> New
+            </button>
+        </div>
+
+        {{-- Search --}}
+        <div style="padding:10px 12px;border-bottom:1px solid var(--border);">
+            <div style="position:relative;">
+                <i class="bi bi-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;"></i>
+                <input type="text" placeholder="Search inbox..." id="searchInbox"
+                    style="width:100%;padding:8px 8px 8px 32px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--bg-input);color:var(--text-strong);outline:none;">
+            </div>
+        </div>
+
+        {{-- Conversation list --}}
+        <div style="flex:1;overflow-y:auto;" id="conversationList">
+            @forelse($conversations as $conv)
+            <div class="conv-item {{ $conv->channel }}"
+                data-id="{{ $conv->id }}"
+                onclick="openConversation({{ $conv->id }})"
+                style="padding:12px 14px;border-bottom:1px solid var(--bg-stripe);cursor:pointer;display:flex;gap:10px;align-items:flex-start;">
+                <div style="width:36px;height:36px;border-radius:50%;background:{{ $conv->lead_id ? 'var(--primary)' : '#94a3b8' }};color:white;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                    {{ strtoupper(substr($conv->from_name ?: $conv->from_email, 0, 1)) }}
+                </div>
+                <div style="flex:1;min-width:0;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span style="font-size:13px;font-weight:600;color:var(--text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">
+                            {{ $conv->from_name ?: $conv->from_email }}
+                        </span>
+                        <span class="conv-time" style="font-size:11px;color:var(--text-muted);flex-shrink:0;">
+                            {{ $conv->wait_since->diffForHumans(null, true, true) }}
+                        </span>
+                    </div>
+                    <div style="font-size:12px;color:var(--text-mid);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">
+                        {{ $conv->subject }}
+                    </div>
+                    <div class="conv-preview" style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">
+                        {{ $conv->messages->first()?->body_text ? Str::limit(strip_tags($conv->messages->first()->body_text), 50) : '' }}
+                    </div>
+                    <div style="display:flex;gap:4px;margin-top:4px;">
+                        <span class="badge" style="font-size:10px;background:{{ $conv->channel === 'email' ? '#dbeafe' : '#dcfce7' }};color:{{ $conv->channel === 'email' ? '#1d4ed8' : '#166534' }};">
+                            {{ strtoupper($conv->channel) }}
+                        </span>
+                        @if(!$conv->lead_id)
+                        <span class="badge badge-warning" style="font-size:10px;">NO LEAD</span>
+                        @endif
+                    </div>
+                </div>
+                @if($conv->status === 'pending')
+                <span style="width:8px;height:8px;border-radius:50%;background:var(--primary);flex-shrink:0;margin-top:4px;"></span>
+                @endif
+            </div>
+            @empty
+            <div class="empty-conversations" style="padding:40px 20px;text-align:center;color:var(--text-muted);">
+                <i class="bi bi-inbox" style="font-size:32px;display:block;margin-bottom:8px;"></i>
+                <div style="font-size:13px;">No conversations</div>
+            </div>
+            @endforelse
+        </div>
+    </div>
+
+    {{-- COLUMNA CENTRO — Hilo de mensajes --}}
+    <div style="display:flex;flex-direction:column;background:var(--bg-page);" id="messagePanel">
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--text-muted);">
+            <i class="bi bi-chat-left-text" style="font-size:48px;"></i>
+            <div style="font-size:14px;">Select a conversation to start</div>
+        </div>
+    </div>
+
+    {{-- COLUMNA DERECHA — Info del lead --}}
+    <div style="border-left:1px solid var(--border);background:var(--bg-card);overflow-y:auto;" id="leadPanel">
+        <div style="padding:40px 20px;text-align:center;color:var(--text-muted);">
+            <i class="bi bi-person-circle" style="font-size:48px;display:block;margin-bottom:8px;"></i>
+            <div style="font-size:13px;">No conversation selected</div>
+        </div>
+    </div>
+
+</div>
+@endif
+{{-- MODAL DISPOSITION --}}
+<div class="modal-overlay" id="dispositionModal">
+    <div class="modal" style="max-width:420px;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="bi bi-tag-fill" style="color:var(--primary);margin-right:6px;"></i> Set Disposition</div>
+            <button class="modal-close" onclick="closeModal('dispositionModal')">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:12px;">
+            <input type="hidden" id="dispositionConvId">
+            <input type="text" id="dispositionSearch" placeholder="Search disposition..." 
+                oninput="filterDispositions()"
+                style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--bg-input);color:var(--text-strong);outline:none;margin-bottom:8px;">
+            <div id="dispositionOptions" style="height:285px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;"></div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('dispositionModal')">Cancel</button>
+            <button type="button" id="dispositionApplyBtn" class="btn btn-primary" disabled
+                onclick="applyDisposition(document.getElementById('dispositionConvId').value, selectedDispositionId, selectedDispositionName)">
+                <i class="bi bi-check"></i> Apply
+            </button>
+        </div>
+    </div>
+</div>
+{{-- COMPOSE MODAL --}}
+<div class="modal-overlay" id="composeModal">
+    <div class="modal" style="max-width:600px;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="bi bi-pencil-square" style="color:var(--primary);margin-right:6px;"></i> New Email</div>
+            <button class="modal-close" onclick="closeModal('composeModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">To <span style="color:#dc2626;">*</span></label>
+                <input type="email" id="composeTo" class="form-control" placeholder="recipient@email.com">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Subject <span style="color:#dc2626;">*</span></label>
+                <input type="text" id="composeSubject" class="form-control" placeholder="Subject...">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Associate with Lead (optional)</label>
+                <input type="text" id="composeLeadSearch" class="form-control" placeholder="Search lead by name or email...">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Message <span style="color:#dc2626;">*</span></label>
+                <textarea id="composeBody" class="form-control" rows="8" placeholder="Write your message..."></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('composeModal')">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="sendCompose()">
+                <i class="bi bi-send"></i> Send
+            </button>
+        </div>
+    </div>
+</div>
+
+@endsection
+
+@push('scripts')
+
+<style>
+.console-tab {
+    padding: 10px 14px;
+    border: none;
+    background: none;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+   
+}
+.console-tab.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+}
+.conv-item:hover { background: var(--bg-row-hover); }
+.conv-item.selected { background: var(--primary-light); border-left: 3px solid var(--primary); }
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+</style>
+
+<script>
+// ── Status vars ──
+let statusSince   = new Date("{{ $session?->status_since?->toISOString() ?? now()->toISOString() }}");
+let currentStatus = "{{ $session?->status ?? 'offline' }}";
+let maxMinutes    = {{ $session?->pauseReason?->max_minutes ?? 'null' }};
+let timerInterval = null;
+
+// ── Inicializar estado visual al cargar ──
+document.addEventListener('DOMContentLoaded', function() {
+    const colors     = { ready: '#22c55e', paused: '#f59e0b', offline: '#94a3b8' };
+    const pauseColor = "{{ $session?->pauseReason?->color ?? '#f59e0b' }}";
+    const pauseName  = "{{ $session?->pauseReason?->name ?? '' }}";
+
+    const dotColor = currentStatus === 'paused' ? pauseColor : (colors[currentStatus] ?? '#94a3b8');
+    const label    = currentStatus === 'paused' && pauseName ? pauseName :
+                     (currentStatus === 'ready' ? 'Ready' : 'Offline');
+
+    document.getElementById('statusDot').style.background = dotColor;
+    document.getElementById('statusLabel').textContent    = label;
+});
+
+// ── Timer ──
+function startTimer() {
+    clearInterval(timerInterval);
+
+      // Offline no cuenta tiempo
+    if (currentStatus === 'offline') {
+        document.getElementById('statusTimer').textContent = '00:00:00';
+        return;
+    }
+
+    timerInterval = setInterval(() => {
+        const seconds = Math.floor((new Date() - statusSince) / 1000);
+        const h = String(Math.floor(seconds / 3600)).padStart(2, '0');
+        const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
+        const s = String(seconds % 60).padStart(2, '0');
+        const timer = document.getElementById('statusTimer');
+        timer.textContent = `${h}:${m}:${s}`;
+        if (maxMinutes && seconds > maxMinutes * 60) {
+            timer.style.color = '#ef4444';
+        } else {
+            timer.style.color = 'var(--text-strong)';
+        }
+    }, 1000);
+}
+startTimer();
+
+// ── Notification polling ──
+let lastUnreadCount = 0;
+const notifSound = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAA...'); // usaremos Web Audio API
+
+// Web Audio API para generar el sonido sin archivo externo
+function playNotifSound() {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.connect(g);
+        g.connect(ctx.destination);
+        o.type = 'sine';
+        o.frequency.setValueAtTime(880, ctx.currentTime);
+        o.frequency.setValueAtTime(660, ctx.currentTime + 0.1);
+        g.gain.setValueAtTime(0.3, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+        o.start(ctx.currentTime);
+        o.stop(ctx.currentTime + 0.4);
+    } catch(e) {}
+}
+
+let activeConversationId = null;
+
+function pollUnread() {
+    fetch('/console/unread')
+        .then(r => r.json())
+        .then(data => {
+            const count = data.count;
+
+            // Actualizar badge
+            const notifBtn = document.getElementById('notifBtn');
+            let badge = notifBtn.querySelector('.notif-badge');
+
+            if (count > 0) {
+                if (!badge) {
+                    badge = document.createElement('span');
+                    badge.className = 'notif-badge';
+                    badge.style.cssText = 'position:absolute;top:-2px;right:-2px;width:16px;height:16px;background:var(--danger);border-radius:50%;font-size:9px;font-weight:700;color:white;display:flex;align-items:center;justify-content:center;';
+                    notifBtn.appendChild(badge);
+                }
+                badge.textContent = count;
+            } else {
+                badge?.remove();
+            }
+
+            if (count > lastUnreadCount && lastUnreadCount > 0) { 
+                playNotifSound();
+            }
+
+            // Actualizar dropdown siempre
+            updateNotifDropdown(data.conversations);
+
+            // Actualizar lastUnreadCount DESPUÉS del if
+            lastUnreadCount = count;
+
+            // Refrescar lista izquierda
+            refreshConversationList();
+
+            // Refrescar thread si hay conversación activa abierta
+            if (activeConversationId) {
+                fetch(`/console/conversation/${activeConversationId}`)
+                    .then(r => r.json())
+                    .then(conv => {
+                        if (conv.conversation?.status === 'resolved') {
+                            activeConversationId = null;
+                            return;
+                        }
+                      
+                        const thread = document.getElementById('messageThread');
+                        if (!thread) return;
+                        const renderedIds = new Set(
+                            [...thread.querySelectorAll('[data-msg-id]')]
+                                .map(el => parseInt(el.dataset.msgId))
+                        );
+                        const newMessages = conv.messages
+                            .filter(m => !renderedIds.has(m.id))
+                            .sort((a, b) => new Date(b.sent_at_raw) - new Date(a.sent_at_raw));
+                        console.log('newMessages order:', newMessages.map(m => ({id: m.id, sent_at_raw: m.sent_at_raw, from: m.from_email})));
+                        if (newMessages.length > 0) {
+                            newMessages.reverse().forEach(m => {
+                                thread.insertAdjacentHTML('afterbegin', renderMessage(m));
+                            });
+                            thread.scrollTop = 0;
+                        }
+                    });
+            }
+        })
+        .catch(err => console.error('Poll error:', err));
+}
+
+function updateNotifDropdown(conversations) {
+    const dropdown = document.getElementById('notifDropdown');
+
+    // Limpiar todo excepto el header
+    dropdown.querySelectorAll('.notif-item').forEach(el => el.remove());
+
+    if (conversations.length === 0) {
+        const div = document.createElement('div');
+        div.className = 'notif-item';
+        div.style.cssText = 'padding:24px;text-align:center;color:var(--text-muted);font-size:13px;';
+        div.textContent = 'No new emails';
+        dropdown.appendChild(div);
+        return;
+    }
+
+    conversations.slice(0, 5).forEach(conv => {
+        const div = document.createElement('div');
+        div.className = 'notif-item';
+        div.onclick = () => openConversation(conv.id);
+        div.style.cssText = 'padding:12px 16px;border-bottom:1px solid var(--bg-stripe);cursor:pointer;display:flex;gap:12px;align-items:flex-start;';
+        div.onmouseover = () => div.style.background = 'var(--bg-th)';
+        div.onmouseout  = () => div.style.background = '';
+        div.innerHTML = `
+            <div style="width:32px;height:32px;border-radius:50%;background:var(--primary);color:white;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                ${(conv.from_name || conv.from_email || '?').substring(0,1).toUpperCase()}
+            </div>
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:600;color:var(--text-strong);">${conv.from_name || conv.from_email}</div>
+                <div style="font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${conv.subject}</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${conv.wait_since}</div>
+            </div>
+            <span style="width:8px;height:8px;border-radius:50%;background:var(--primary);flex-shrink:0;margin-top:4px;"></span>
+        `;
+        dropdown.appendChild(div);
+    });
+}
+
+async function markAllRead() {
+    await fetch('/console/mark-all-read', {
+        method: 'POST',
+        headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }
+    });
+    pollUnread();
+    refreshConversationList();
+}
+function refreshConversationList() {
+    fetch('/console/my-conversations')
+        .then(r => r.json())
+        .then(conversations => {
+            let list = document.getElementById('conversationList');
+
+            /*if (conversations.length === 0) {
+                document.getElementById('consoleGrid').style.gridTemplateColumns = '1fr';
+                document.getElementById('conversationList').closest('div[style*="border-right"]').style.display = 'none';
+                document.getElementById('leadPanel').style.display = 'none';
+                document.getElementById('messagePanel').innerHTML = `
+                    <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;color:var(--text-muted);">
+                        <i class="bi bi-inbox" style="font-size:64px;opacity:0.3;"></i>
+                        <div style="font-size:16px;font-weight:600;color:var(--text-strong);">No active conversations</div>
+                        <div style="font-size:13px;">New conversations will appear here automatically</div>
+                    </div>`;
+
+                return;
+            }    */
+           if (conversations.length === 0) {
+                document.getElementById('consoleGrid').style.gridTemplateColumns = '1fr';
+                
+                const leftPanel = document.querySelector('#consoleGrid > div[style*="border-right"]');
+                if (leftPanel) leftPanel.style.display = 'none';
+                
+                document.getElementById('leadPanel').style.display = 'none';
+                document.getElementById('messagePanel').innerHTML = `
+                    <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;color:var(--text-muted);">
+                        <i class="bi bi-inbox" style="font-size:64px;opacity:0.3;"></i>
+                        <div style="font-size:16px;font-weight:600;color:var(--text-strong);">No active conversations</div>
+                        <div style="font-size:13px;">New conversations will appear here automatically</div>
+                    </div>`;
+                return;
+            }   
+            // Restaurar grid cuando hay conversaciones
+            const grid = document.getElementById('consoleGrid');
+            grid.style.gridTemplateColumns = '280px 1fr 300px';
+
+            const leftPanel = document.querySelector('#consoleGrid > div[style*="border-right"]');
+            if (!leftPanel) {
+                // Construir panel izquierdo dinámicamente
+                const newLeft = document.createElement('div');
+                newLeft.style.cssText = 'border-right:1px solid var(--border);display:flex;flex-direction:column;background:var(--bg-card);';
+                newLeft.innerHTML = `
+                    <div style="display:flex;border-bottom:1px solid var(--border);padding:0 8px;">
+                        <button class="console-tab active" data-tab="email" onclick="filterTab('email')">
+                            <i class="bi bi-envelope"></i> Email
+                        </button>
+                        <button class="console-tab" data-tab="chat" onclick="filterTab('chat')">
+                            <i class="bi bi-chat"></i> Chat
+                        </button>
+                        <button class="console-tab" data-tab="all" onclick="filterTab('all')">
+                            <i class="bi bi-grid"></i> All
+                        </button>
+                        <button onclick="openCompose()" style="margin-left:auto;margin-top:8px;margin-bottom:8px;padding:4px 10px;border-radius:var(--radius-sm);background:var(--primary);color:white;border:none;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:4px;">
+                            <i class="bi bi-pencil-square"></i> New
+                        </button>
+                    </div>
+                    <div style="padding:10px 12px;border-bottom:1px solid var(--border);">
+                        <div style="position:relative;">
+                            <i class="bi bi-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;"></i>
+                            <input type="text" placeholder="Search inbox..." id="searchInbox"
+                                style="width:100%;padding:8px 8px 8px 32px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--bg-input);color:var(--text-strong);outline:none;">
+                        </div>
+                    </div>
+                    <div style="flex:1;overflow-y:auto;" id="conversationList"></div>
+                `;
+                grid.insertBefore(newLeft, grid.firstChild);
+                list = document.getElementById('conversationList');
+                // Asegurar que el conversationList sea visible
+                const convList = document.getElementById('conversationList');
+                if (convList) {
+                    convList.style.display = '';
+                    convList.closest('div').style.display = '';
+                }
+
+            }
+
+            document.getElementById('leadPanel').style.display = '';
+            document.getElementById('leadPanel').style.borderLeft = '1px solid var(--border)';
+
+            // Restaurar contenido inicial del leadPanel si está vacío
+            if (!document.getElementById('leadPanel').innerHTML.trim()) {
+                document.getElementById('leadPanel').innerHTML = `
+                    <div style="padding:40px 20px;text-align:center;color:var(--text-muted);">
+                        <i class="bi bi-person-circle" style="font-size:48px;display:block;margin-bottom:8px;"></i>
+                        <div style="font-size:13px;">No conversation selected</div>
+                    </div>
+                `;
+            }
+
+            // Restaurar messagePanel si está en estado vacío
+            if (!document.getElementById('messageThread')) {
+                document.getElementById('messagePanel').innerHTML = `
+                    <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--text-muted);">
+                        <i class="bi bi-chat-left-text" style="font-size:48px;"></i>
+                        <div style="font-size:14px;">Select a conversation to start</div>
+                    </div>
+                `;
+            }
+            
+            const emptyState = list.querySelector('.empty-conversations');
+            if (emptyState) emptyState.remove();
+
+            conversations.forEach(conv => {
+                const existing = document.querySelector(`.conv-item[data-id="${conv.id}"]`);
+                
+                if (existing) {
+                    // Actualizar tiempo, preview y punto de lectura sin re-renderizar
+                    const timeEl = existing.querySelector('.conv-time');
+                    const previewEl = existing.querySelector('.conv-preview');
+                    const dot = existing.querySelector('.unread-dot');
+                    if (timeEl) timeEl.textContent = conv.wait_since;
+                    if (previewEl) previewEl.textContent = conv.preview;
+                    existing.dataset.lastMessage = conv.last_message_at; 
+                    if (conv.read_at && dot) dot.remove();
+                } else {
+                    // Nueva conversación — agregar a la lista   
+                    const div = document.createElement('div');
+                    div.className = `conv-item ${conv.channel}`;
+                    div.dataset.id = conv.id;
+                    div.dataset.lastMessage = conv.last_message_at; 
+                    div.onclick = () => openConversation(conv.id);
+                    div.style.cssText = 'padding:12px 14px;border-bottom:1px solid var(--bg-stripe);cursor:pointer;display:flex;gap:10px;align-items:flex-start;';
+                    div.innerHTML = `
+                        <div style="width:36px;height:36px;border-radius:50%;background:${conv.lead_id ? 'var(--primary)' : '#94a3b8'};color:white;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                            ${(conv.from_name || conv.from_email || '?').substring(0,1).toUpperCase()}
+                        </div>
+                        <div style="flex:1;min-width:0;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <span style="font-size:13px;font-weight:600;color:var(--text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">
+                                    ${conv.from_name || conv.from_email}
+                                </span>
+                                <span class="conv-time" style="font-size:11px;color:var(--text-muted);flex-shrink:0;">${conv.wait_since}</span>
+                            </div>
+                            <div style="font-size:12px;color:var(--text-mid);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">${conv.subject}</div>
+                            <div class="conv-preview" style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">${conv.preview}</div>
+                            <div style="display:flex;gap:4px;margin-top:4px;">
+                                <span class="badge" style="font-size:10px;background:${conv.channel === 'email' ? '#dbeafe' : '#dcfce7'};color:${conv.channel === 'email' ? '#1d4ed8' : '#166534'};">${conv.channel.toUpperCase()}</span>
+                                ${!conv.lead_id ? '<span class="badge badge-warning" style="font-size:10px;">NO LEAD</span>' : ''}
+                            </div>
+                        </div>
+                        ${!conv.read_at ? '<span class="unread-dot" style="width:8px;height:8px;border-radius:50%;background:var(--primary);flex-shrink:0;margin-top:4px;"></span>' : ''}
+                    `;
+                    list.appendChild(div); // ← solo esto, el reorder lo acomoda
+                }                    
+            });                       
+             
+             conversations.forEach(c => console.log('Server id:', c.id, 'last_message_at:', c.last_message_at)); 
+
+             [...list.querySelectorAll('.conv-item')]
+                .sort((a, b) => (b.dataset.lastMessage || '') > (a.dataset.lastMessage || '') ? 1 : -1)
+                .forEach(el => list.appendChild(el));
+
+             
+                
+            // Quitar conversaciones resueltas
+            list.querySelectorAll('.conv-item').forEach(el => {               
+                if (!conversations.find(c => c.id == el.dataset.id)) el.remove();
+            });
+
+            if (activeConversationId) {
+                document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('selected'));
+                const activeItem = document.querySelector(`.conv-item[data-id="${activeConversationId}"]`);
+                if (activeItem) activeItem.classList.add('selected');
+            }
+        });
+}
+// Iniciar polling
+pollUnread();
+setInterval(pollUnread, 30000);
+
+// ── Ping heartbeat ──
+setInterval(async () => {
+    await fetch("{{ route('agent.ping') }}", {
+        method: 'POST',
+        headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }
+    });
+}, 30000);
+
+// ── Status menu ──
+function toggleStatusMenu() {
+    const menu = document.getElementById('statusMenu');
+    menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+
+async function setStatus(status, pauseReasonId = null, pauseReasonName = null, pauseReasonColor = null) {
+    document.getElementById('statusMenu').style.display = 'none';
+
+    const resp = await fetch("{{ route('agent.setStatus') }}", {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+        },
+        body: JSON.stringify({ status, pause_reason_id: pauseReasonId })
+    });
+
+    const data = await resp.json();
+    if (!data.ok) { showToast(data.error || 'Error', 'error'); return; }
+
+    currentStatus = status;
+    statusSince   = new Date();
+
+    const colors   = { ready: '#22c55e', paused: '#f59e0b', offline: '#94a3b8' };
+    const dotColor = status === 'paused' && pauseReasonColor ? pauseReasonColor : colors[status];
+    const label    = status === 'paused' && pauseReasonName ? pauseReasonName :
+                     (status === 'ready' ? 'Ready' : 'Offline');
+
+    document.getElementById('statusDot').style.background = dotColor;
+    document.getElementById('statusLabel').textContent    = label;
+
+    maxMinutes = null;
+    @foreach($pauseReasons as $reason)
+    if (pauseReasonId === {{ $reason->id }}) maxMinutes = {{ $reason->max_minutes ?? 'null' }};
+    @endforeach
+
+    startTimer();
+    showToast('Status: ' + label, 'success');
+}
+
+// ── Notifications ──
+function toggleNotifications() {
+    const dd = document.getElementById('notifDropdown');
+    dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+}
+
+// ── Tabs filter ──
+function filterTab(tab) {
+    document.querySelectorAll('.console-tab').forEach(t => t.classList.remove('active'));
+    document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
+    document.querySelectorAll('.conv-item').forEach(item => {
+        item.style.display = (tab === 'all' || item.classList.contains(tab)) ? '' : 'none';
+    });
+}
+
+// ── Open conversation ──
+function openConversation(id) {
+    activeConversationId = id;
+    document.querySelectorAll('.conv-item').forEach(i => i.classList.remove('selected'));
+    document.querySelector(`.conv-item[data-id="${id}"]`)?.classList.add('selected');
+    document.getElementById('notifDropdown').style.display = 'none';
+
+    // Skeleton loading
+    document.getElementById('messagePanel').style.cssText = 'display:flex;flex-direction:column;background:var(--bg-page);overflow:hidden;';
+    document.getElementById('messagePanel').innerHTML = `
+        <div style="flex:1;padding:20px;display:flex;flex-direction:column;gap:16px;">
+            ${[1,2,3].map(() => `
+                <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+                    <div style="padding:10px 14px;display:flex;align-items:center;gap:10px;background:var(--bg-card);">
+                        <div style="width:32px;height:32px;border-radius:50%;background:var(--bg-stripe);flex-shrink:0;animation:pulse 1.5s infinite;"></div>
+                        <div style="flex:1;">
+                            <div style="height:12px;background:var(--bg-stripe);border-radius:4px;width:40%;animation:pulse 1.5s infinite;"></div>
+                        </div>
+                        <div style="height:12px;background:var(--bg-stripe);border-radius:4px;width:15%;animation:pulse 1.5s infinite;"></div>
+                    </div>
+                    <div style="padding:16px;background:var(--bg-page);">
+                        <div style="height:60px;background:var(--bg-stripe);border-radius:4px;animation:pulse 1.5s infinite;"></div>
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+
+    // Marcar leído
+    fetch(`/console/conversation/${id}/read`, {
+        method: 'PATCH',
+        headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }
+    }).then(() => pollUnread());
+
+    // Cargar conversación
+    fetch(`/console/conversation/${id}`)
+        .then(r => r.json())
+        .then(data => renderConversation(data));
+}
+
+function renderConversation(data) {
+    const conv     = data.conversation;
+    const messages = data.messages;
+    const lead     = data.lead;
+    currentDispositions = data.dispositions || [];
+
+    console.log('render order:', messages.map(m => m.from_email + ' ' + m.sent_at));
+
+    document.getElementById('messagePanel').style.cssText = 'display:flex;flex-direction:column;background:var(--bg-page);overflow:hidden;';
+    document.getElementById('messagePanel').innerHTML = `
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);background:var(--bg-card);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+            <div>
+                <div style="font-size:15px;font-weight:600;color:var(--text-strong);">${conv.subject}</div>
+                <div style="font-size:12px;color:var(--text-muted);">${conv.from_name || conv.from_email}</div>
+            </div>
+        </div>
+        <div style="flex:1;overflow-y:auto;padding:20px;min-height:0;" id="messageThread">
+            ${messages.map(m => renderMessage(m)).join('')}
+        </div>
+        <div style="border-top:1px solid var(--border);background:var(--bg-card);flex-shrink:0;">
+           <div style="padding:12px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);min-height:50px;">
+                <div>
+                    <span id="replyMode" style="font-size:13px;color:var(--text-muted);">↩ Reply to ${conv.last_from_name || conv.last_from_email || conv.from_email}</span>
+                    ${(conv.cc_emails || conv.last_to_emails) ? `
+                        <div id="replyCcPreview" style="font-size:11px;color:var(--text-muted);margin-top:2px;display:none;">
+                            <i class="bi bi-people" style="margin-right:4px;"></i>
+                            ${[...new Set([...(conv.cc_emails?.split(',') || []), ...(conv.last_to_emails?.split(',') || [])].map(e => e.trim()).filter(Boolean))].join(', ')}
+                        </div>
+                    ` : ''}
+                </div>
+                <div style="display:flex;gap:6px;">                     
+                        <button id="btn-reply" class="btn btn-primary btn-sm reply-mode-btn" 
+                            onclick="setReplyMode('reply', ${conv.id}, '${conv.last_from_name || conv.last_from_email || conv.from_email}', '')">
+                            <i class="bi bi-reply"></i> Reply
+                        </button>              
+                    ${(conv.cc_emails || conv.has_multiple_recipients) ? `                        
+                        <button id="btn-replyall" class="btn btn-secondary btn-sm reply-mode-btn" 
+                            onclick="setReplyMode('replyall', ${conv.id}, '${conv.last_from_name || conv.last_from_email || conv.from_email}', '${[conv.cc_emails, conv.last_to_emails].filter(Boolean).join(', ')}')">                            
+                            <i class="bi bi-reply-all"></i> Reply All
+                        </button>
+                    ` : ''}
+                    <button id="btn-forward" class="btn btn-secondary btn-sm reply-mode-btn" onclick="setReplyMode('forward', ${conv.id}, '', '')">
+                        <i class="bi bi-forward"></i> Forward</button>
+                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('attachmentInput').click()">
+                        <i class="bi bi-paperclip"></i>
+                    </button>                   
+                </div>                 
+            </div>        
+            <div id="attachmentList" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+            <input type="file" id="attachmentInput" multiple style="display:none;" onchange="handleAttachments(this.files)">
+            <div id="replyBody" style="min-height:150px;background:white;"></div>
+            <div style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;">
+                <div style="display:flex;gap:8px;">
+                    <button class="btn btn-primary btn-lg" onclick="sendReply(${conv.id})">
+                        <i class="bi bi-send"></i> Send Reply
+                    </button>
+                    <button class="btn btn-secondary btn-lg"><i class="bi bi-calendar"></i> Schedule</button>
+                    <button class="btn btn-secondary btn-lg"><i class="bi bi-arrow-left-right"></i> Transfer</button>                    
+                </div>
+                <button class="btn btn-secondary btn-lg" onclick="setDisposition(${conv.id})">
+                    <i class="bi bi-tag"></i> Disposition
+                </button>
+            </div>
+        </div>       
+    `;
+        // Inicializar Jodit
+    setTimeout(() => {
+        if (window.joditEditor) {
+            window.joditEditor.destruct();
+            window.joditEditor = null;
+        }
+        window.joditEditor = Jodit.make('#replyBody', {
+            height: 200,
+            toolbarButtonSize: 'small',
+            language: 'en',
+            toolbarAdaptive: false,
+            buttons: 'bold,italic,underline,strikethrough,|,ul,ol,|,font,fontsize,brush,|,image,table,link,|,align,|,undo,redo,|,eraser,|,fullsize',
+            uploader: {
+                insertImageAsBase64URI: true
+            },
+            placeholder: 'Write your reply...',
+            showCharsCounter: false,
+            showWordsCounter: false,
+            showXPathInStatusbar: false,
+            addNewLine: false, // ← agrega esto
+            maxHeight: 400,
+            allowResizeY: true,
+            allowResizeX: false,
+        });
+        window.joditEditor.events.on('ready', () => {
+            window.joditEditor.value = '';       
+        });
+    }, 100);
+        
+    // Colapsar todos excepto el primero
+    document.querySelectorAll('#messageThread [data-msg-id]').forEach((el, i) => {
+        if (i > 0) {
+            const msgId = `msg-body-${el.dataset.msgId}`;
+            const body = document.getElementById(msgId);
+            const icon = document.getElementById(`icon-${msgId}`);
+            if (body) {
+                body.style.overflow = 'hidden';
+                body.style.height = '0';
+                body.dataset.collapsed = 'true';
+            }
+            if (icon) icon.style.transform = 'rotate(-90deg)';
+        }
+    });
+
+    if (lead) {
+        document.getElementById('leadPanel').innerHTML = `
+            <div style="padding:16px;">
+                <div style="display:grid;gap:12px;">
+                    ${field('First Name', lead.first_name)}
+                    ${field('Last Name', lead.last_name)}
+                    ${field('Email', lead.email)}
+                    ${field('Phone', lead.phone)}
+                    ${field('Address', lead.address)}
+                    ${field('City', lead.city)}
+                    ${field('State', lead.state)}
+                    ${field('Zip Code', lead.zip)}
+                    <div>
+                        <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">Status</div>
+                        <div style="margin-top:4px;">
+                            <span class="badge" style="background:${lead.status_bg};color:${lead.status_color};">${lead.status_label}</span>
+                        </div>
+                    </div>
+                </div>
+                <a href="/leads/${lead.id}" target="_blank" style="display:inline-flex;align-items:center;gap:6px;margin-top:16px;font-size:13px;color:var(--primary);">
+                    <i class="bi bi-box-arrow-up-right"></i> View Full Lead
+                </a>
+            </div>
+        `;
+    } else {
+        document.getElementById('leadPanel').innerHTML = `
+            <div style="padding:20px;text-align:center;color:var(--text-muted);">
+                <i class="bi bi-person-x" style="font-size:32px;display:block;margin-bottom:8px;"></i>
+                <div style="font-size:13px;margin-bottom:12px;">No lead associated</div>
+                <button class="btn btn-outline btn-sm" onclick="associateLead(${conv.id})">
+                    <i class="bi bi-link"></i> Associate Lead
+                </button>
+            </div>
+        `;
+    }
+    if (activeConversationId) {
+        document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('selected'));
+        const activeItem = document.querySelector(`.conv-item[data-id="${activeConversationId}"]`);
+        if (activeItem) activeItem.classList.add('selected');
+    }
+}
+
+function field(label, value) {
+    return `<div>
+        <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">${label}</div>
+        <div style="font-size:13px;font-weight:500;color:var(--text-strong);margin-top:2px;">${value || '—'}</div>
+    </div>`;
+}
+function toggleMessage(msgId) {
+    const body = document.getElementById(msgId);
+    const icon = document.getElementById(`icon-${msgId}`);
+    const isCollapsed = body.dataset.collapsed === 'true';
+    
+    if (isCollapsed) {
+        body.style.height = '';
+        body.style.overflow = '';
+        body.dataset.collapsed = 'false';
+        icon.style.transform = 'rotate(0deg)';
+    } else {
+        body.style.height = '0';
+        body.style.overflow = 'hidden';
+        body.dataset.collapsed = 'true';
+        icon.style.transform = 'rotate(-90deg)';
+    }
+}
+function renderMessage(m) {
+    const isOutbound = m.direction === 'outbound';
+    const msgId = `msg-body-${m.id}`;
+    return `
+        <div data-msg-id="${m.id}" style="margin-bottom:12px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:#ffffff;">
+            
+            <div onclick="toggleMessage('${msgId}')" style="display:flex;align-items:center;gap:10px;padding:10px 14px;min-height:52px;cursor:pointer;background:var(--bg-card);"
+                onmouseover="this.style.background='var(--bg-stripe)'"
+                onmouseout="this.style.background='var(--bg-card)'">
+                <div style="width:32px;height:32px;border-radius:50%;background:${isOutbound ? 'var(--primary)' : 'var(--bg-stripe)'};color:${isOutbound ? 'white' : 'var(--text-strong)'};font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                    ${(m.from_email || '?').substring(0,1).toUpperCase()}
+                </div>
+                <div style="flex:1;min-width:0;">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <span style="font-size:13px;font-weight:600;color:var(--text-strong);">${m.from_email}</span>
+                        <span style="font-size:11px;color:var(--text-muted);">→ ${m.to_email}</span>
+                        <span style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:99px;background:${isOutbound ? 'var(--bg-th)' : '#dcfce7'};color:${isOutbound ? 'var(--primary)' : '#16a34a'};">
+                            ${isOutbound ? '↑ OUTBOUND' : '↓ INBOUND'}
+                        </span>
+                    </div>
+                    ${m.cc_emails ? `
+                        <div style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:500px;padding-top:2px;">
+                            CC: ${m.cc_emails}
+                        </div>
+                    ` : ''}
+                </div>
+                <span style="font-size:11px;color:var(--text-muted);flex-shrink:0;">${m.sent_at}</span>
+                <i class="bi bi-chevron-down" id="icon-${msgId}" style="font-size:11px;color:var(--text-muted);transition:transform .2s;flex-shrink:0;"></i>
+            </div>
+            <div id="${msgId}" style="border-top:1px solid var(--border);">
+                ${m.body_html
+                    ? `<iframe
+                            src="/console/message/${m.id}/html"
+                            style="width:100%;border:none;min-height:60px;display:block;"
+                            scrolling="no"
+                            onload="try{this.style.height=this.contentDocument.body.scrollHeight+24+'px';}catch(e){}">
+                        </iframe>`
+                    : `<div style="padding:12px 16px;font-size:13px;line-height:1.6;color:var(--text-strong);">${m.body_text || ''}</div>`
+                }
+                ${m.attachments?.length ? `
+                    <div style="display:flex;gap:8px;padding:8px 14px 12px;flex-wrap:wrap;border-top:1px solid var(--border);">
+                        ${m.attachments.map(a => `
+                            <a href="/attachments/${a.id}" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;color:var(--text-mid);text-decoration:none;">
+                                <i class="bi bi-paperclip"></i> ${a.filename}
+                            </a>
+                        `).join('')}
+                    </div>
+                ` : ''}
+            </div>
+        </div>
+    `;
+}
+
+let currentReplyMode = 'reply';
+let currentReplyTo = '';
+let currentReplyCc = '';
+
+function setReplyMode(mode, convId, replyTo, ccEmails) {
+    currentReplyMode = mode;
+    currentReplyTo = replyTo;
+    currentReplyCc = ccEmails;
+
+    // Resaltar botón activo
+    document.querySelectorAll('.reply-mode-btn').forEach(btn => {
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-secondary');
+    });
+    document.getElementById(`btn-${mode}`)?.classList.remove('btn-secondary');
+    document.getElementById(`btn-${mode}`)?.classList.add('btn-primary');
+
+    const modeLabel = document.getElementById('replyMode');
+    const ccPreview = document.getElementById('replyCcPreview');
+    
+    const sendBtn = document.querySelector(`button[onclick="sendReply(${convId})"]`);
+    if (sendBtn) {
+        if (mode === 'reply') sendBtn.innerHTML = '<i class="bi bi-send"></i> Send Reply';
+        if (mode === 'replyall') sendBtn.innerHTML = '<i class="bi bi-send"></i> Send Reply All';
+        if (mode === 'forward') sendBtn.innerHTML = '<i class="bi bi-send"></i> Forward';
+    }
+
+    if (mode === 'reply') {
+        modeLabel.innerHTML = `<i class="bi bi-reply"></i> Reply to ${replyTo}`;
+        if (ccPreview) ccPreview.style.display = 'none';
+        } else if (mode === 'replyall') {
+            modeLabel.innerHTML = `<i class="bi bi-reply-all"></i> Reply All to ${replyTo}`;
+        if (ccPreview) {
+                ccPreview.style.display = 'block';
+            }
+        }
+        else if (mode === 'forward') {
+        modeLabel.innerHTML = `<i class="bi bi-forward"></i> Forward to: <input id="forwardTo" type="text" placeholder="email1@x.com, email2@x.com" style="border:none;border-bottom:1px solid var(--border);outline:none;font-size:13px;background:transparent;color:var(--text-strong);width:250px;">`;
+        if (ccPreview) ccPreview.style.display = 'none';
+    }
+}
+async function sendForward(conversationId, forwardTo) {
+    const body = window.joditEditor?.value?.trim() || '';
+    if (!body) { showToast('Please write a message.', 'error'); return; }
+
+    const btn = document.querySelector(`button[onclick="sendReply(${conversationId})"]`);
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending...';
+    btn.style.opacity = '0.7';
+
+    const formData = new FormData();
+    formData.append('body', body.replace(/\n/g, '<br>'));
+    formData.append('forward_to', forwardTo);
+    selectedAttachments.forEach((file, i) => {
+        formData.append(`attachments[${i}]`, file);
+    });
+
+    const resp = await fetch(`/console/conversation/${conversationId}/forward`, {
+        method: 'POST',
+        headers: {
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+        },
+        body: formData
+    });
+
+    const data = await resp.json();
+
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+    btn.style.opacity = '1';
+
+    if (data.ok) {
+        if (window.joditEditor) window.joditEditor.value = '';
+        selectedAttachments = []; 
+        renderAttachmentList();
+        const thread = document.getElementById('messageThread');
+        if (thread) {
+            const newMessage = {
+                id: data.message_id,
+                direction: 'outbound',
+                from_email: data.from_email,
+                to_email: data.to_email,
+                cc_emails: null,
+                body_html: data.body_html,
+                body_text: data.body_text,
+                sent_at: data.sent_at,
+                sent_at_raw: new Date().toISOString(),
+                attachments: data.attachments || [],
+            };
+            thread.insertAdjacentHTML('afterbegin', renderMessage(newMessage));
+            thread.scrollTop = 0;
+        }
+        // Reset a reply mode
+        setReplyMode('reply', conversationId, currentReplyTo, '');
+        showToast('Email forwarded.', 'success');
+    } else {
+        showToast(data.error || 'Error forwarding email.', 'error');
+    }
+}
+// ── Adjuntos ──
+let selectedAttachments = [];
+
+function handleAttachments(files) {
+    selectedAttachments = [...selectedAttachments, ...Array.from(files)];
+    renderAttachmentList();
+    document.getElementById('attachmentInput').value = '';
+}
+
+function renderAttachmentList() {
+    const list = document.getElementById('attachmentList');
+    if (!list) return;
+    if (selectedAttachments.length === 0) {
+        list.innerHTML = '';
+        list.style.padding = '0';
+        list.style.borderBottom = 'none';
+        return;
+    }
+    list.style.padding = '6px 16px';
+    list.style.borderBottom = '1px solid var(--border)';
+    list.innerHTML = selectedAttachments.map((f, i) => `
+        <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;color:var(--text-mid);background:var(--bg-th);">
+            <i class="bi bi-paperclip"></i>
+            <span>${f.name}</span>
+            <span onclick="removeAttachment(${i})" style="cursor:pointer;color:var(--danger);font-weight:700;margin-left:4px;">×</span>
+        </div>
+    `).join('');
+}
+
+function removeAttachment(index) {
+    selectedAttachments.splice(index, 1);
+    renderAttachmentList();
+}
+async function sendReply(conversationId) {
+
+    if (currentReplyMode === 'replyall') {
+        sendReplyAll(conversationId, currentReplyCc);
+        return;
+    }
+    if (currentReplyMode === 'forward') {
+        const forwardTo = document.getElementById('forwardTo')?.value.trim();
+        if (!forwardTo) { showToast('Please enter a forward email.', 'error'); return; }
+        sendForward(conversationId, forwardTo);
+        return;
+    }
+
+    let body = window.joditEditor?.value?.trim() || '';
+    body = body.replace(/(<p>\s*(<br\s*\/?>\s*)*<\/p>\s*)+(?=<table)/gi, ''); // quita <p> vacíos antes de tabla
+    body = body.replace(/(<br\s*\/?>\s*)+(?=<table)/gi, ''); // quita <br> antes de tabla
+    body = body.replace(/border-color:\s*([^;}"]+)/g, 'border: 1px solid $1');
+    body = body.replace(/<tr>\s*<td>\s*<br\s*\/?>\s*<\/td>\s*<\/tr>/gi, '');
+    body = body.replace(/<td>\s*<br\s*\/?>\s*<\/td>/gi, '');
+
+    if (!body) { showToast('Please write a reply.', 'error'); return; }
+
+    // Deshabilitar botón y mostrar sending
+    const btn = document.querySelector(`button[onclick="sendReply(${conversationId})"]`);
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending...';
+    btn.style.opacity = '0.7';
+
+    const formData = new FormData();
+    formData.append('body', body.replace(/\n/g, '<br>'));
+    selectedAttachments.forEach((file, i) => {
+        formData.append(`attachments[${i}]`, file);
+    });
+
+    const resp = await fetch(`/console/conversation/${conversationId}/reply`, {
+        method: 'POST',
+        headers: {
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+        },
+        body: formData
+    });
+
+    const data = await resp.json();
+
+    // Restaurar botón
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+    btn.style.opacity = '1';
+
+   if (data.ok) {
+    if (window.joditEditor) window.joditEditor.value = '';
+        selectedAttachments = [];     
+        renderAttachmentList();     
+    
+    // Agregar el mensaje directamente al thread sin recargar
+    const thread = document.getElementById('messageThread');
+    if (thread) {
+        const newMessage = {
+            id: data.message_id,
+            direction: 'outbound',
+            from_email: data.from_email,
+            to_email: data.to_email,
+            body_html: data.body_html,
+            body_text: data.body_text,
+            sent_at: data.sent_at,
+            attachments: data.attachments || [],
+        };
+        const newMessageHtml = renderMessage(newMessage);
+        thread.insertAdjacentHTML('afterbegin', newMessageHtml);
+        thread.scrollTop = 0; // scroll arriba
+    }
+        showToast('Reply sent successfully.', 'success');
+    } else {
+        showToast(data.error || 'Error sending reply.', 'error');
+    }
+}
+async function sendReplyAll(conversationId, ccEmails) {
+    let body = window.joditEditor?.value?.trim() || '';
+
+    body = body.replace(/(<br\s*\/?>\s*){3,}/gi, '<br>');
+    body = body.replace(/(<br\s*\/?>\s*)+(?=<table)/gi, '');
+    body = body.replace(/border-color:\s*([^;}"]+)/g, 'border: 1px solid $1');
+    body = body.replace(/<tr>\s*<td>\s*<br\s*\/?>\s*<\/td>\s*<\/tr>/gi, '');
+    body = body.replace(/<td>\s*<br\s*\/?>\s*<\/td>/gi, '');
+
+    if (!body) { showToast('Please write a reply.', 'error'); return; }
+
+    const btn = document.querySelector(`button[onclick="sendReply(${conversationId})"]`);
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending...';
+    btn.style.opacity = '0.7';
+
+    const formData = new FormData();
+    formData.append('body', body);
+    formData.append('cc_emails', ccEmails);
+    selectedAttachments.forEach((file, i) => {
+        formData.append(`attachments[${i}]`, file);
+    });
+
+    const resp = await fetch(`/console/conversation/${conversationId}/reply-all`, {
+        method: 'POST',
+        headers: {
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+        },
+        body: formData
+    });
+
+    const data = await resp.json();
+
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+    btn.style.opacity = '1';
+
+    if (data.ok) {
+        if (window.joditEditor) window.joditEditor.value = '';
+        selectedAttachments = [];
+        renderAttachmentList();
+        const thread = document.getElementById('messageThread');
+        if (thread) {
+            const newMessage = {
+                id: data.message_id,
+                direction: 'outbound',
+                from_email: data.from_email,
+                to_email: data.to_email,
+                cc_emails: data.cc_emails,
+                body_html: data.body_html,
+                body_text: data.body_text,
+                sent_at: data.sent_at,
+                attachments: data.attachments || []
+            };
+            thread.insertAdjacentHTML('afterbegin', renderMessage(newMessage));
+            thread.scrollTop = 0;
+        }
+        showToast('Reply sent to all.', 'success');
+    } else {
+        showToast(data.error || 'Error sending reply.', 'error');
+    }
+}
+
+function openCompose() {
+    document.getElementById('composeModal').classList.add('active');
+}
+
+function closeModal(id) {
+    document.getElementById(id).classList.remove('active');
+}
+
+async function sendCompose() {
+    const to      = document.getElementById('composeTo').value.trim();
+    const subject = document.getElementById('composeSubject').value.trim();
+    const body    = document.getElementById('composeBody').value.trim();
+
+    if (!to || !subject || !body) { showToast('Please fill all required fields.', 'error'); return; }
+
+    const resp = await fetch('/console/compose', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+        },
+        body: JSON.stringify({ to, subject, body })
+    });
+
+    const data = await resp.json();
+    if (data.ok) {
+        closeModal('composeModal');
+        showToast('Email sent.', 'success');
+    } else {
+        showToast(data.error || 'Error sending email.', 'error');
+    }
+}
+
+// ── Cerrar dropdowns al click fuera ──
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('#statusIndicator') && !e.target.closest('#statusMenu')) {
+        document.getElementById('statusMenu').style.display = 'none';
+    }
+    if (!e.target.closest('#notifBtn') && !e.target.closest('#notifDropdown')) {
+        document.getElementById('notifDropdown').style.display = 'none';
+    }
+});
+let currentDispositions = [];
+let selectedDispositionId = null;
+let selectedDispositionName = null;
+
+function setDisposition(convId) {
+    selectedDispositionId = null;
+    selectedDispositionName = null;
+    document.getElementById('dispositionConvId').value = convId;
+    document.getElementById('dispositionSearch').value = '';
+    document.getElementById('dispositionApplyBtn').disabled = true;
+    renderDispositionOptions(convId, currentDispositions);
+    document.getElementById('dispositionModal').classList.add('active');
+    setTimeout(() => document.getElementById('dispositionSearch').focus(), 100);
+}
+
+function renderDispositionOptions(convId, dispositions) {
+    const options = dispositions.map(d => `
+        <div id="dispo-${d.id}" onclick="selectDisposition(${d.id}, '${d.name}')"
+             style="padding:12px 14px;cursor:pointer;border-radius:var(--radius-sm);font-size:13px;color:var(--text-strong);display:flex;align-items:center;gap:12px;border:1px solid var(--border);"
+             onmouseover="if(selectedDispositionId!=${d.id}) this.style.background='var(--bg-th)'"
+             onmouseout="this.style.background=(selectedDispositionId==${d.id} ? 'var(--primary-light)' : '')">
+            <span style="width:12px;height:12px;border-radius:50%;background:${d.bg_color || '#94a3b8'};flex-shrink:0;"></span>
+            <div style="flex:1;">
+                <div style="font-weight:500;">${d.name}</div>
+                ${d.description ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${d.description}</div>` : ''}
+            </div>
+        </div>
+    `).join('');
+    document.getElementById('dispositionOptions').innerHTML = options || 
+        '<div style="padding:16px;color:var(--text-muted);font-size:13px;text-align:center;">No dispositions found</div>';
+}
+
+function selectDisposition(id, name) {
+    if (selectedDispositionId) {
+        const prev = document.getElementById(`dispo-${selectedDispositionId}`);
+        if (prev) {
+            prev.style.background = '';
+            prev.style.border = '1px solid var(--border)';
+        }
+    }
+    selectedDispositionId = id;
+    selectedDispositionName = name;
+    const el = document.getElementById(`dispo-${id}`);
+    if (el) {
+        el.style.background = 'var(--primary-light)';
+        el.style.border = '1px solid var(--primary)';
+    }
+    document.getElementById('dispositionApplyBtn').disabled = false;
+}
+
+function filterDispositions() {
+    const search = document.getElementById('dispositionSearch').value.toLowerCase();
+    const convId = document.getElementById('dispositionConvId').value;
+    const filtered = currentDispositions.filter(d => d.name.toLowerCase().includes(search));
+    renderDispositionOptions(convId, filtered);
+}
+
+async function applyDisposition(convId, dispositionId, dispositionName) {
+     const btn = document.getElementById('dispositionApplyBtn');
+    btn.disabled = true; // ← agrega esto al inicio
+    const resp = await fetch(`/console/conversation/${convId}/disposition`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+        },
+        body: JSON.stringify({ disposition_id: dispositionId })
+    });
+
+    const data = await resp.json();
+    if (data.ok) {
+        activeConversationId = null;
+        closeModal('dispositionModal');
+        refreshConversationList();
+        // Limpiar item del dropdown de notificaciones
+        document.querySelectorAll('.notif-item').forEach(el => {
+            if (el.onclick?.toString().includes(convId)) el.remove();
+        });
+        // Forzar re-poll inmediato
+        pollUnread();
+
+        showToast(`Dispositioned as: ${dispositionName}`, 'success');
+
+        // Quitar conversación de la lista
+        document.querySelector(`.conv-item[data-id="${convId}"]`)?.remove();
+        document.getElementById('messagePanel').innerHTML = `
+            <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--text-muted);">
+                <i class="bi bi-chat-left-text" style="font-size:48px;"></i>
+                <div style="font-size:14px;">Select a conversation to start</div>
+            </div>
+        `;
+        document.getElementById('leadPanel').innerHTML = `
+            <div style="padding:40px 20px;text-align:center;color:var(--text-muted);">
+                <i class="bi bi-person-circle" style="font-size:48px;display:block;margin-bottom:8px;"></i>
+                <div style="font-size:13px;">No conversation selected</div>
+            </div>
+        `;
+    } else {
+        btn.disabled = false;
+        showToast(data.error || 'Error', 'error');
+    }
+}
+</script>
+@endpush

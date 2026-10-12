@@ -1,0 +1,4779 @@
+﻿@extends('layouts.app')
+
+@push('styles')
+<style>
+.jodit-container.jodit_fullsize {
+    z-index: 99999 !important;
+}
+.jodit-container.jodit_fullsize ~ .jodit-ui-group,
+.jodit-container.jodit_fullsize .jodit-toolbar__box {
+    z-index: 99999 !important;
+}
+#composeModal.active {
+    z-index: 200 !important;
+}
+.jodit_fullsize-box {
+    z-index: 99999 !important;
+}
+.console-tab {
+    padding: 10px 14px;
+    border: none;
+    background: none;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.console-tab.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+}
+.conv-item:hover { background: var(--bg-row-hover); }
+.conv-item.selected { background: var(--primary-light); border-left: 3px solid var(--primary); }
+/* Script tab rich content */
+.script-rich-content h1,.script-rich-content h2,.script-rich-content h3,.script-rich-content h4 {
+    color:var(--text-strong);margin:12px 0 6px;line-height:1.3;
+}
+.script-rich-content p { margin:0 0 8px; }
+.script-rich-content ul,.script-rich-content ol { padding-left:20px;margin-bottom:8px; }
+.script-rich-content table { width:100%;border-collapse:collapse;margin-bottom:12px; }
+.script-rich-content td,.script-rich-content th { border:1px solid var(--border);padding:6px 10px;font-size:13px; }
+.script-rich-content th { background:var(--bg-th);font-weight:600; }
+.script-rich-content a { color:var(--primary); }
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+@keyframes shimmer {
+    0%   { background-position: -800px 0 }
+    100% { background-position:  800px 0 }
+}
+.sk {
+    background: linear-gradient(to right, var(--bg-stripe) 4%, var(--bg-card) 25%, var(--bg-stripe) 36%);
+    background-size: 1000px 100%;
+    animation: shimmer 1.4s infinite linear;
+    border-radius: 4px;
+}
+#leadPanel {
+    width: 0;
+    transition: width 0.25s ease, border-left-color 0.25s ease;
+}
+#leadPanel.open {
+    width: 300px;
+    border-left-color: var(--border);
+}
+.conversation-context-header {
+    padding: 0 16px;
+    height: 38px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-card);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+}
+.conversation-context-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    flex: 1 1 auto;
+}
+.conversation-context-channel {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 10px;
+    border: 1px solid currentColor;
+    font-size: 12px;
+    font-weight: 700;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+.conversation-context-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding-right: 14px;
+    border-right: 1px solid #DDE3EA;
+}
+.conversation-context-item:last-child,
+.conversation-context-item.is-last {
+    border-right: 0;
+    padding-right: 0;
+}
+.conversation-context-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.conversation-context-copy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.conversation-context-label {
+    font-size: 10px;
+    color: #8492A6;
+    white-space: nowrap;
+}
+.conversation-context-value {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-strong);
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.conversation-context-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+</style>
+@endpush
+
+@section('title', 'Agent Console')
+@section('page-title', 'Console')
+@section('page-subtitle', 'Agent workspace')
+
+@section('header-actions')
+{{-- Status selector --}}
+<div style="display:flex;align-items:center;gap:8px;">
+    <div id="statusIndicator" role="button" tabindex="{{ $voiceConsoleState['selector_disabled'] ? '-1' : '0' }}" aria-haspopup="menu" aria-expanded="false" aria-disabled="{{ $voiceConsoleState['selector_disabled'] ? 'true' : 'false' }}" style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:99px;background:var(--bg-th);border:1px solid var(--border);cursor:{{ $voiceConsoleState['selector_disabled'] ? 'not-allowed' : 'pointer' }};opacity:{{ $voiceConsoleState['selector_disabled'] ? '.55' : '1' }};" onclick="toggleStatusMenu()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleStatusMenu();}">
+        @php
+            $dotColor = match($voiceConsoleState['status']) {
+                'ready'  => '#22c55e',
+                'paused' => '#f59e0b',
+                'ringing' => '#3b82f6',
+                'in_call' => '#16a34a',
+                'wrap_up' => '#f59e0b',
+                default  => '#94a3b8',
+            };
+            $statusLabel = match($voiceConsoleState['status']) {
+                'ready' => 'Ready',
+                'paused' => 'Paused',
+                'ringing' => 'Ringing',
+                'in_call' => 'In Call',
+                'wrap_up' => 'Wrap-Up',
+                default => 'Offline',
+            };
+        @endphp
+        <span id="statusDot" style="width:8px;height:8px;border-radius:50%;background:{{ $dotColor }};"></span>
+        <span id="statusLabel" style="font-size:13px;font-weight:600;color:var(--text-strong);">
+            {{ $statusLabel }}
+        </span>
+        <i class="bi bi-chevron-down" style="font-size:11px;color:var(--text-muted);"></i>
+    </div>
+
+    {{-- Status dropdown --}}
+    <div id="statusMenu" style="display:none;position:absolute;top:65px;right:248px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-lg);z-index:999;min-width:200px;padding:8px;">
+        <div id="agentReadyAction" aria-disabled="{{ $voiceCapability['eligible'] ? 'true' : 'false' }}" aria-busy="false" onclick="setStatus('ready')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius-sm);cursor:pointer;" onmouseover="this.style.background='var(--bg-th)'" onmouseout="this.style.background=''">
+            <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;"></span>
+            <span style="font-size:13px;font-weight:500;">Ready</span>
+        </div>
+        <div style="border-top:1px solid var(--border);margin:4px 0;padding-top:4px;">
+            <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;padding:4px 12px;">Pause Reasons</div>
+            @foreach($pauseReasons as $reason)
+            <div onclick="setStatus('paused', {{ $reason->id }}, '{{ $reason->name }}', '{{ $reason->color }}')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius-sm);cursor:pointer;" onmouseover="this.style.background='var(--bg-th)'" onmouseout="this.style.background=''">
+                <span style="width:8px;height:8px;border-radius:50%;background:{{ $reason->color }};flex-shrink:0;"></span>
+                <div>
+                    <div style="font-size:13px;font-weight:500;">{{ $reason->name }}</div>
+                    @if($reason->max_minutes)
+                    <div style="font-size:11px;color:var(--text-muted);">Max {{ $reason->max_minutes }} min</div>
+                    @endif
+                </div>
+            </div>
+            @endforeach
+        </div>
+        <div style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px;">
+            <div onclick="setStatus('offline')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius-sm);cursor:pointer;" onmouseover="this.style.background='var(--bg-th)'" onmouseout="this.style.background=''">
+            <span style="width:8px;height:8px;border-radius:50%;background:#94a3b8;flex-shrink:0;"></span>
+            <span style="font-size:13px;font-weight:500;">End Session</span>
+        </div>
+        </div>
+    </div>
+</div>
+
+{{-- Timer --}}
+<div style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:99px;background:var(--bg-th);border:1px solid var(--border);">
+    <i class="bi bi-clock" style="font-size:13px;color:var(--text-muted);"></i>
+    <span id="statusTimer" style="font-size:13px;font-weight:600;font-family:monospace;color:var(--text-strong);">00:00:00</span>
+</div>
+
+{{-- Tools button --}}
+<div style="position:relative;">
+    <button class="theme-btn" id="toolsBtn" onclick="toggleToolsMenu()" title="Outbound actions">
+        <i class="bi bi-lightning-charge-fill"></i>
+    </button>
+    <div id="toolsMenu" style="display:none;position:absolute;top:51px;right:0;width:240px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-lg);z-index:99999;padding:6px;">
+        <div style="font-size:9px;font-weight:500;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;padding:4px 8px 8px;">Outbound actions</div>
+
+        <div onclick="closeToolsMenu();openCompose()"
+            style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;cursor:pointer;"
+            onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='transparent'">
+            <div style="width:32px;height:32px;border-radius:7px;background:#E6F1FB;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <i class="bi bi-envelope" style="font-size:14px;color:#185FA5;"></i>
+            </div>
+            <div>
+                <div style="font-size:12px;font-weight:500;color:var(--text-strong);">Compose email</div>
+                <div style="font-size:10px;color:var(--text-muted);">New outbound email</div>
+            </div>
+        </div>
+
+        <div onclick="closeToolsMenu();openSmsCompose()"
+            style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;cursor:pointer;"
+            onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='transparent'">
+            <div style="width:32px;height:32px;border-radius:7px;background:#FAEEDA;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <i class="bi bi-chat-text" style="font-size:14px;color:#854F0B;"></i>
+            </div>
+            <div>
+                <div style="font-size:12px;font-weight:500;color:var(--text-strong);">Send SMS</div>
+                <div style="font-size:10px;color:var(--text-muted);">Text message outbound</div>
+            </div>
+        </div>
+
+        @if($voiceCapability['eligible'] && $voiceCapability['allow_outbound'])
+        <div id="voiceMakeCallAction" role="button" tabindex="0" aria-disabled="true"
+            onclick="openAgentVoiceDialer()"
+            onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openAgentVoiceDialer();}"
+            style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;opacity:.45;cursor:not-allowed;"
+            onmouseover="if(this.getAttribute('aria-disabled')==='false')this.style.background='var(--bg-secondary)'"
+            onmouseout="this.style.background='transparent'">
+            <div style="width:32px;height:32px;border-radius:7px;background:#EAF3DE;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <i class="bi bi-telephone" style="font-size:14px;color:#3B6D11;"></i>
+            </div>
+            <div>
+                <div style="font-size:12px;font-weight:500;color:var(--text-strong);">Make a call</div>
+                <div style="font-size:10px;color:var(--text-muted);">Outbound voice call</div>
+            </div>
+        </div>
+        @else
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;opacity:.4;cursor:default;">
+            <div style="width:32px;height:32px;border-radius:7px;background:#EAF3DE;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <i class="bi bi-telephone" style="font-size:14px;color:#3B6D11;"></i>
+            </div>
+            <div>
+                <div style="font-size:12px;font-weight:500;color:var(--text-strong);">Make a call <span style="font-size:8px;background:#FAEEDA;color:#854F0B;border-radius:3px;padding:1px 5px;font-weight:500;">soon</span></div>
+                <div style="font-size:10px;color:var(--text-muted);">Outbound voice call</div>
+            </div>
+        </div>
+        @endif
+
+        <div onclick="closeToolsMenu();openWhatsappCompose()"
+            style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;cursor:pointer;"
+            onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background='transparent'">
+            <div style="width:32px;height:32px;border-radius:7px;background:#E1F5EE;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <i class="bi bi-whatsapp" style="font-size:14px;color:#0F6E56;"></i>
+            </div>
+            <div>
+                <div style="font-size:12px;font-weight:500;color:var(--text-strong);">WhatsApp</div>
+                <div style="font-size:10px;color:var(--text-muted);">Send WhatsApp message</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- Preview Dialer offer popover anchor --}}
+@if($voiceCapability['eligible'])
+<div style="position:relative;">
+    <button class="theme-btn" id="previewOfferAction" type="button" title="Preview Dialer offers" aria-label="Preview Dialer offers">
+        <i class="bi bi-telephone-inbound"></i>
+    </button>
+</div>
+@endif
+
+{{-- Notifications --}}
+<div style="position:relative;">
+    <button class="theme-btn" id="notifBtn" onclick="toggleNotifications()">
+        <i class="bi bi-envelope-fill"></i>
+        @php $initUnread = $conversations->where('status','active')->whereNull('read_at')->where('channel','email')->count(); @endphp
+        @if($initUnread > 0)
+        <span id="emailBadge" style="position:absolute;top:-2px;right:-2px;width:16px;height:16px;background:var(--danger);border-radius:50%;font-size:9px;font-weight:700;color:white;display:flex;align-items:center;justify-content:center;">
+            {{ $initUnread }}
+        </span>
+        @endif
+    </button>
+    {{-- Notifications dropdown --}}
+        <div id="notifDropdown" style="display:none;position:absolute;top:51px;right:0;width:320px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-lg);z-index:999;">
+            <div id="notifHeader" style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:14px;font-weight:600;color:var(--text-strong);">Email</span>
+                <a href="#" onclick="markAllRead()" style="font-size:12px;color:var(--primary);">Mark all read</a>
+            </div>
+            <div class="notif-item" style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">Loading...</div>
+        </div>
+</div>
+{{-- Notifications Chat/WhatsApp --}}
+<div style="position:relative;">
+    <button class="theme-btn" id="notifWaBtn" onclick="toggleWaNotifications()">
+        <i class="bi bi-chat-fill"></i>
+        @php $initUnreadWa = $conversations->where('status','active')->whereNull('read_at')->whereIn('channel',['whatsapp','chat'])->count(); @endphp
+        @if($initUnreadWa > 0)
+        <span id="waBadge" style="position:absolute;top:-2px;right:-2px;width:16px;height:16px;background:#0F6E56;border-radius:50%;font-size:9px;font-weight:700;color:white;display:flex;align-items:center;justify-content:center;">
+            {{ $initUnreadWa }}
+        </span>
+        @endif
+    </button>
+    <div id="notifWaDropdown" style="display:none;position:absolute;top:51px;right:0;width:320px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-lg);z-index:999;">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:14px;font-weight:600;color:var(--text-strong);">Chat</span>
+            <a href="#" onclick="markAllWaRead()" style="font-size:12px;color:var(--primary);">Mark all read</a>
+        </div>
+        <div id="waNotifList" style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">No new messages</div>
+    </div>
+</div>
+
+{{-- Tools button --}}
+</div>
+
+
+@endsection
+
+@section('content')
+@if($conversations->isEmpty())
+<div id="consoleGrid" style="display:flex;gap:0;height:calc(100vh - var(--header-h));margin:-24px;overflow:hidden;position:relative;">
+    <div id="messagePanel" style="display:flex;flex-direction:column;background:var(--bg-page);position:relative;min-height:0;overflow:hidden;flex:1;">
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;color:var(--text-muted);">
+            <i class="bi bi-inbox" style="font-size:64px;opacity:0.3;"></i>
+            <div style="font-size:16px;font-weight:600;color:var(--text-strong);">No active conversations</div>
+            <div style="font-size:13px;">New conversations will appear here automatically</div>
+        </div>
+    </div>
+    <div id="conversationList" style="display:none;"></div>
+    {{-- Same layout shell as the @else branch. It must NOT carry display:none:
+         visibility is driven solely by #leadPanel / #leadPanel.open (width 0 <-> 300px),
+         and an inline display:none would beat that class, leaving the panel
+         invisible for Voice interactions started from an empty console. --}}
+    <div style="overflow:hidden;border-left:1px solid var(--border);flex-shrink:0;background:var(--bg-card);display:flex;flex-direction:column;min-height:0;" id="leadPanel"></div>
+</div>
+@else
+<div id="consoleGrid" style="display:flex;gap:0;height:calc(100vh - var(--header-h));margin:-24px;overflow:hidden;min-height:0;position:relative;">
+
+    {{-- COLUMNA IZQUIERDA — Lista de conversaciones --}}
+    <div style="border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;background:var(--bg-card);overflow:hidden;width:280px;flex-shrink:0;">
+        {{-- Tabs --}}
+        <div style="display:flex;border-bottom:1px solid var(--border);padding:0 8px;">
+            <button class="console-tab active" data-tab="all" onclick="filterTab('all')">
+                <i class="bi bi-grid"></i> All
+            </button>
+            <button class="console-tab" data-tab="email" onclick="filterTab('email')">
+                <i class="bi bi-envelope"></i> Email
+            </button>
+            <button class="console-tab" data-tab="chat" onclick="filterTab('chat')">
+                <i class="bi bi-chat"></i> Chat
+            </button>
+        </div>
+
+        {{-- Search --}}
+        <div style="padding:10px 12px;border-bottom:1px solid var(--border);">
+            <div style="position:relative;">
+                <i class="bi bi-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;"></i>
+                <input type="text" placeholder="Search inbox..." id="searchInbox"
+                    oninput="filterInbox(this.value)"
+                    style="width:100%;padding:8px 8px 8px 32px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--bg-input);color:var(--text-strong);outline:none;">
+            </div>
+        </div>
+
+        {{-- Conversation list --}}
+        <div style="flex:1;overflow-y:auto;min-height:0;scrollbar-width:thin;" id="conversationList">
+            @forelse($conversations as $conv)
+            {{-- Voice conversations are rendered exclusively by the adapter (voice-local-card).
+                 Skipping them here prevents a purple generic card from appearing on page load. --}}
+            @if($conv->channel === 'voice') @continue @endif
+            <div class="conv-item {{ $conv->channel }}"
+                data-id="{{ $conv->id }}"
+                data-lead-id="{{ $conv->lead_id ?? '' }}"
+                onclick="openConversation({{ $conv->id }})"
+                style="padding:12px 14px;border-bottom:1px solid var(--bg-stripe);cursor:pointer;display:flex;gap:10px;align-items:flex-start;">
+                @php
+                    $iconClass = match($conv->channel) {
+                        'email'     => 'bi-envelope-fill',
+                        'whatsapp'  => 'bi-whatsapp',
+                        'facebook'  => 'bi-facebook',
+                        'instagram' => 'bi-instagram',
+                        'sms'       => 'bi-chat-text',
+                        default     => 'bi-chat-fill',
+                    };
+                    $iconBg = match($conv->channel) {
+                        'email'     => '#E6F1FB',
+                        'whatsapp'  => '#E1F5EE',
+                        'facebook'  => '#E7F0FE',
+                        'instagram' => '#FDEAF3',
+                        'sms'       => '#FAEEDA',
+                        default     => '#EEEDFE',
+                    };
+                    $iconColor = match($conv->channel) {
+                        'email'     => '#185FA5',
+                        'whatsapp'  => '#0F6E56',
+                        'facebook'  => '#1877F2',
+                        'instagram' => '#C13584',
+                        'sms'       => '#854F0B',
+                        default     => '#3C3489',
+                    };
+                @endphp
+                <div style="width:36px;height:36px;border-radius:10px;background:{{ $iconBg }};color:{{ $iconColor }};font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border: 1px solid currentColor;">
+                    <i class="bi {{ $iconClass }}"></i>
+                </div>
+                <div style="flex:1;min-width:0;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span data-conv-name style="font-size:13px;font-weight:600;color:var(--text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">
+                            @php
+                                $convLeadName = $conv->lead ? trim($conv->lead->first_name . ' ' . $conv->lead->last_name) : '';
+                            @endphp
+                            {{ $convLeadName !== '' ? $convLeadName : ($conv->from_name ?: $conv->from_email) }}
+                        </span>
+                        <span class="conv-time" style="font-size:11px;color:var(--text-muted);flex-shrink:0;">
+                            {{ $conv->wait_since->diffForHumans(null, true, true) }}
+                        </span>
+                    </div>
+                    <div style="font-size:12px;color:var(--text-mid);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">
+                        {{ $conv->subject }}
+                    </div>
+                    <div class="conv-preview" style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">
+                        {{ $conv->messages->first()?->body_text ? Str::limit(strip_tags($conv->messages->first()->body_text), 50) : '' }}
+                    </div>
+                    <div style="display:flex;gap:4px;margin-top:4px;">
+                        @php
+                            $chBg    = match($conv->channel) { 'email' => '#E6F1FB', 'whatsapp' => '#E1F5EE', 'facebook' => '#E7F0FE', 'instagram' => '#FDEAF3', 'sms' => '#FAEEDA', default => '#EEEDFE' };
+                            $chColor = match($conv->channel) { 'email' => '#0C447C', 'whatsapp' => '#085041', 'facebook' => '#1877F2', 'instagram' => '#C13584', 'sms' => '#854F0B', default => '#3C3489' };
+                            $chIcon  = match($conv->channel) { 'email' => 'bi-envelope-fill', 'whatsapp' => 'bi-whatsapp', 'facebook' => 'bi-facebook', 'instagram' => 'bi-instagram', 'sms' => 'bi-chat-text', default => 'bi-chat-fill' };
+                            $chLabel = match($conv->channel) { 'email' => 'EMAIL', 'whatsapp' => 'WHATSAPP', 'chat' => 'WEBCHAT', 'sms' => 'SMS', default => strtoupper($conv->channel) };
+                        @endphp
+                        <span class="badge" style="font-size:10px;background:{{ $chBg }};color:{{ $chColor }};display:inline-flex;align-items:center;gap:3px;">
+                            <i class="bi {{ $chIcon }}" style="font-size:9px;"></i>
+                            {{ $chLabel }}
+                        </span>
+                        @if($conv->ai_bot_active)
+                        <span class="badge ai-bot-badge" style="font-size:10px;background:#EDE9FE;color:#6D28D9;">
+                            <i class="bi bi-robot" style="font-size:9px;"></i> AI BOT
+                        </span>
+                        @endif
+                        @if(!$conv->lead_id)
+                        <span class="badge badge-warning no-lead-badge" style="font-size:10px;">NO LEAD</span>
+                        @endif
+                    </div>
+                </div>
+                @if($conv->status === 'active' && !$conv->read_at)
+                <span class="unread-dot" style="width:8px;height:8px;border-radius:50%;background:var(--primary);flex-shrink:0;margin-top:4px;"></span>
+                @endif
+            </div>
+            @empty
+            <div class="empty-conversations" style="padding:40px 20px;text-align:center;color:var(--text-muted);">
+                <i class="bi bi-inbox" style="font-size:32px;display:block;margin-bottom:8px;"></i>
+                <div style="font-size:13px;">No conversations</div>
+            </div>
+            @endforelse
+        </div>
+    </div>
+
+    {{-- COLUMNA CENTRO — Hilo de mensajes --}}
+    <div style="display:flex;flex-direction:column;background:var(--bg-page);position:relative;min-height:0;overflow:hidden;flex:1;min-width:0;" id="messagePanel">
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--text-muted);">
+            <i class="bi bi-chat-left-text" style="font-size:48px;"></i>
+            <div style="font-size:14px;">Select a conversation to start</div>
+        </div>
+    </div>
+
+    {{-- COLUMNA DERECHA — Info del lead --}}
+    <div style="overflow:hidden;border-left:1px solid var(--border);flex-shrink:0;background:var(--bg-card);display:flex;flex-direction:column;min-height:0;" id="leadPanel">
+        <div style="padding:40px 20px;text-align:center;color:var(--text-muted);">
+            <i class="bi bi-person-circle" style="font-size:48px;display:block;margin-bottom:8px;"></i>
+            <div style="font-size:13px;">No conversation selected</div>
+        </div>
+    </div>
+
+</div>
+@endif
+
+{{-- MODAL DISPOSITION --}}
+<div class="modal-overlay" id="dispositionModal">
+    <div class="modal" style="max-width:420px;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="bi bi-tag-fill" style="color:var(--primary);margin-right:6px;"></i> Set Disposition</div>
+            <button class="modal-close" onclick="closeModal('dispositionModal')">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:12px;">
+            <input type="hidden" id="dispositionConvId">
+            <input type="text" id="dispositionSearch" placeholder="Search disposition..."
+                oninput="filterDispositions()"
+                style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--bg-input);color:var(--text-strong);outline:none;margin-bottom:8px;">
+            <div id="dispositionOptions" style="height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;"></div>
+            <div id="callbackAtGroup" style="display:none;margin-top:10px;">
+                <label style="font-size:12px;font-weight:500;color:var(--text-muted);display:block;margin-bottom:4px;">Callback date/time</label>
+                <input type="datetime-local" id="callbackAt"
+                       style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--bg-input);color:var(--text-strong);outline:none;">
+            </div>
+            <div style="margin-top:10px;">
+                <label style="font-size:12px;font-weight:500;color:var(--text-muted);display:block;margin-bottom:4px;">Notes (optional)</label>
+                <textarea id="dispositionNotes" rows="3" maxlength="500"
+                          placeholder=""
+                          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--bg-input);color:var(--text-strong);resize:vertical;outline:none;"></textarea>
+            </div>
+            {{-- Voice-only: hidden for Email/Chat/WhatsApp/Facebook/Instagram/social
+                 dispositions via setDisposition()'s channel guard. Selecting a value
+                 here never mutates status before disposition succeeds (Wrap-Up Truth
+                 Rule) — it is only read at submit time by getAfterDispositionStatusSelection(). --}}
+            <div id="afterDispositionStatusGroup" style="margin-top:10px;display:none;">
+                <label style="font-size:12px;font-weight:500;color:var(--text-muted);display:block;margin-bottom:4px;">After Disposition Status</label>
+                <select id="afterDispositionStatusSelect"
+                        style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--bg-input);color:var(--text-strong);outline:none;">
+                    <option value="ready">Ready</option>
+                    @foreach($pauseReasons as $reason)
+                    <option value="pause_{{ $reason->id }}">{{ $reason->name }}</option>
+                    @endforeach
+                    <option value="offline">Offline</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('dispositionModal')">Cancel</button>
+            <button type="button" id="dispositionApplyBtn" class="btn btn-primary" disabled
+                onclick="applyDisposition(document.getElementById('dispositionConvId').value, selectedDispositionId, selectedDispositionName)">
+                <i class="bi bi-check"></i> Apply
+            </button>
+        </div>
+    </div>
+</div>
+
+{{-- MODAL SEARCH LEAD --}}
+<div class="modal-overlay" id="searchLeadModal">
+    <div class="modal" style="max-width:460px;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="bi bi-search" style="color:var(--primary);margin-right:6px;"></i> Search Lead</div>
+            <button class="modal-close" onclick="closeModal('searchLeadModal')">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:12px;">
+            <input type="text" id="searchLeadInput" placeholder="Search by name, email or phone..."
+                oninput="debounceLeadSearch()"
+                style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--bg-input);color:var(--text-strong);outline:none;margin-bottom:8px;">
+            <div id="searchLeadResults" style="display:flex;flex-direction:column;gap:4px;max-height:320px;overflow-y:auto;"></div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('searchLeadModal')">Cancel</button>
+        </div>
+    </div>
+</div>
+
+{{-- MODAL TRANSFER --}}
+<div class="modal-overlay" id="transferModal">
+    <div class="modal" style="max-width:400px;">
+        <div class="modal-header">
+            <div class="modal-title"><i class="bi bi-arrow-left-right" style="color:var(--primary);margin-right:6px;"></i> Transfer Conversation</div>
+            <button class="modal-close" onclick="closeModal('transferModal')">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:12px;">
+            <input type="hidden" id="transferConvId">
+            <input type="text" id="transferSearch" placeholder="Search agent..."
+                oninput="filterTransferAgents()"
+                style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--bg-input);color:var(--text-strong);outline:none;margin-bottom:8px;">
+            <div id="transferValidationMsg" style="display:none;color:var(--danger);font-size:12px;margin-bottom:6px;"></div>
+            <div id="transferAgentList" style="display:flex;flex-direction:column;gap:6px;min-height:42px;"></div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('transferModal')">Cancel</button>
+            <button type="button" id="transferBtn" class="btn btn-primary" disabled onclick="submitTransfer()">
+                <i class="bi bi-arrow-left-right"></i> Transfer
+            </button>
+        </div>
+    </div>
+</div>
+
+{{-- COMPOSE MODAL --}}
+@include('partials.compose-email-modal')
+
+@if($voiceCapability['eligible'])
+    @include('console.partials.voice-dialer')
+@endif
+
+{{-- Modal: New WhatsApp Outbound --}}
+<div id="waComposeModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:1050;align-items:center;justify-content:center;">
+    <div style="background:var(--bg-card);border-radius:var(--radius);border:1px solid var(--border);width:440px;overflow:hidden;box-shadow:var(--shadow-lg);">
+
+        <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
+            <div style="width:32px;height:32px;border-radius:8px;background:#E1F5EE;color:#0F6E56;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <i class="bi bi-whatsapp" style="font-size:16px;"></i>
+            </div>
+            <div style="flex:1;">
+                <div style="font-size:14px;font-weight:500;color:var(--text-strong);">New WhatsApp</div>
+                <div style="font-size:11px;color:var(--text-muted);">Outbound message via template</div>
+            </div>
+            <button onclick="closeWaComposeModal()" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:18px;">&times;</button>
+        </div>
+
+        <div style="padding:18px;">
+
+            <div style="margin-bottom:14px;">
+                <label style="display:block;font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:5px;">WhatsApp Account</label>
+                <div style="position:relative;">
+                    <select id="waComposeAccount"
+                            style="width:100%;padding:9px 36px 9px 12px;font-size:13px;color:var(--text-strong);background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);appearance:none;-webkit-appearance:none;cursor:pointer;outline:none;transition:border-color .15s,box-shadow .15s;"
+                            onfocus="this.style.borderColor='var(--primary)';this.style.boxShadow='0 0 0 3px rgba(79,70,229,.1)'"
+                            onblur="this.style.borderColor='var(--border)';this.style.boxShadow='none'">
+                        @forelse(\App\Models\WhatsappAccount::where('is_active', true)->get() as $waAccount)
+                            <option value="{{ $waAccount->id }}">{{ $waAccount->display_name }} · {{ $waAccount->phone_number }}</option>
+                        @empty
+                            <option value="" disabled>No accounts configured</option>
+                        @endforelse
+                    </select>
+                    <i class="bi bi-chevron-down" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text-muted);pointer-events:none;"></i>
+                </div>
+            </div>
+
+            <div style="margin-bottom:14px;">
+                <label style="display:block;font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:5px;">Destination number</label>
+                <div id="waPhoneWrap" style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;transition:border-color .15s,box-shadow .15s;">
+                    <div style="position:relative;flex-shrink:0;border-right:1px solid var(--border);">
+                        <select id="waComposeCountry" style="width:90px;border:none;background:var(--bg-secondary);color:var(--text-strong);font-size:13px;padding:10px 28px 10px 6px;cursor:pointer;outline:none;appearance:none;-webkit-appearance:none;"
+                            onfocus="document.getElementById('waPhoneWrap').style.borderColor='var(--primary)';document.getElementById('waPhoneWrap').style.boxShadow='0 0 0 3px rgba(79,70,229,.1)'"
+                            onblur="document.getElementById('waPhoneWrap').style.borderColor='var(--border)';document.getElementById('waPhoneWrap').style.boxShadow='none'">
+                            <option value="521">🇲🇽 +52</option>
+                            <option value="1">🇺🇸 +1</option>
+                            <option value="34">🇪🇸 +34</option>
+                            <option value="57">🇨🇴 +57</option>
+                        </select>
+                        <i class="bi bi-chevron-down" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--text-muted);pointer-events:none;"></i>
+                    </div>
+                    <input id="waComposePhone" type="tel" placeholder="6621234567" maxlength="10"
+                        style="flex:1;border:none;padding:10px 10px;font-size:13px;background:var(--bg-card);color:var(--text-strong);outline:none;"
+                        onfocus="document.getElementById('waPhoneWrap').style.borderColor='var(--primary)';document.getElementById('waPhoneWrap').style.boxShadow='0 0 0 3px rgba(79,70,229,.1)'"
+                        onblur="document.getElementById('waPhoneWrap').style.borderColor='var(--border)';document.getElementById('waPhoneWrap').style.boxShadow='none'" />
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">10 digits without country code</div>
+            </div>
+
+            <div style="margin-bottom:14px;">
+                <label style="display:block;font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:5px;">Template</label>
+                <div style="position:relative;">
+                    <select id="waComposeTemplate" onchange="updateWaTemplatePreview()"
+                            style="width:100%;padding:9px 36px 9px 12px;font-size:13px;color:var(--text-strong);background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);appearance:none;-webkit-appearance:none;cursor:pointer;outline:none;transition:border-color .15s,box-shadow .15s;"
+                            onfocus="this.style.borderColor='var(--primary)';this.style.boxShadow='0 0 0 3px rgba(79,70,229,.1)'"
+                            onblur="this.style.borderColor='var(--border)';this.style.boxShadow='none'">
+                        @forelse($waTemplates as $t)
+                            <option value="{{ $t->name }}">{{ $t->display_name }}</option>
+                        @empty
+                            <option value="" disabled>No templates configured</option>
+                        @endforelse
+                    </select>
+                    <i class="bi bi-chevron-down" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text-muted);pointer-events:none;"></i>
+                </div>
+            </div>
+
+            <div style="margin-bottom:14px;">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:5px;">Preview</div>
+                <div id="waTemplatePreview" style="background:var(--bg-secondary);border-radius:6px;padding:12px 14px;font-size:13px;color:var(--text-strong);line-height:1.6;border:1px solid var(--border);min-height:48px;"></div>
+            </div>
+
+            <div style="margin-bottom:0;">
+                <label style="display:block;font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:5px;">
+                    Link to lead <span style="font-weight:400;">(optional)</span>
+                </label>
+                <div style="position:relative;" id="waComposeLeadWrap">
+                    {{-- Estado A: búsqueda --}}
+                    <div id="waComposeLeadSearch">
+                        <input type="text" id="waComposeLeadInput" class="form-control"
+                            placeholder="Search lead by name or phone..."
+                            oninput="debounceWaLeadSearch(this.value)"
+                            autocomplete="off">
+                        <div id="waComposeLeadDropdown" style="display:none;position:fixed;z-index:9999;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);max-height:200px;overflow-y:auto;box-shadow:var(--shadow-lg);"></div>
+                    </div>
+                    {{-- Estado B: lead seleccionado — chip --}}
+                    <div id="waComposeLeadChip" style="display:none;padding:5px 0;">
+                        <div style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 8px;background:#E6F1FB;border:0.5px solid #B5D4F4;border-radius:20px;font-size:12px;color:#0C447C;font-weight:500;">
+                            <div id="waComposeLeadChipAvatar" style="width:18px;height:18px;border-radius:50%;background:#185FA5;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">?</div>
+                            <span id="waComposeLeadChipName">—</span>
+                            <button onclick="clearWaComposeLead()" style="background:none;border:none;cursor:pointer;color:#185FA5;font-size:15px;line-height:1;padding:0;margin-left:2px;opacity:0.7;">×</button>
+                        </div>
+                    </div>
+                </div>
+                <input type="hidden" id="waComposeLeadId" value="" />
+            </div>
+
+        </div>
+
+        <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;">
+            <button onclick="closeWaComposeModal()" class="btn btn-secondary">Cancel</button>
+            <button onclick="sendWaTemplate()" id="waSendTemplateBtn" class="btn btn-primary" style="display:flex;align-items:center;gap:6px;">
+                <i class="bi bi-whatsapp"></i> Send Template
+            </button>
+        </div>
+
+    </div>
+</div>
+
+{{-- Modal: New SMS Outbound (P2P) --}}
+<div id="smsComposeModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:1050;align-items:center;justify-content:center;">
+    <div style="background:var(--bg-card);border-radius:var(--radius);border:1px solid var(--border);width:440px;overflow:hidden;box-shadow:var(--shadow-lg);">
+
+        <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
+            <div style="width:32px;height:32px;border-radius:8px;background:#FAEEDA;color:#854F0B;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <i class="bi bi-chat-text" style="font-size:16px;"></i>
+            </div>
+            <div style="flex:1;">
+                <div style="font-size:14px;font-weight:500;color:var(--text-strong);">New SMS</div>
+                <div style="font-size:11px;color:var(--text-muted);">Outbound P2P message</div>
+            </div>
+            <button onclick="closeSmsComposeModal()" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:18px;">&times;</button>
+        </div>
+
+        <div style="padding:18px;">
+
+            {{-- SMS Number: derivado por elegibilidad del agente. Campaign y Queue
+                 se derivan del número en backend — ya no hay selectores. --}}
+            <div style="margin-bottom:14px;">
+                <label style="display:block;font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:5px;">SMS Number</label>
+                {{-- Dropdown visible solo con más de un número elegible --}}
+                <div id="smsComposeChannelWrap" style="position:relative;display:none;">
+                    <select id="smsComposeChannel" onchange="onSmsChannelChange()"
+                            style="width:100%;padding:9px 36px 9px 12px;font-size:13px;color:var(--text-strong);background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);appearance:none;-webkit-appearance:none;cursor:pointer;outline:none;">
+                    </select>
+                    <i class="bi bi-chevron-down" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text-muted);pointer-events:none;"></i>
+                </div>
+                {{-- Texto compacto cuando hay exactamente un número elegible --}}
+                <div id="smsComposeChannelSingle" style="display:none;font-size:13px;color:var(--text-strong);padding:2px 0;"></div>
+                {{-- Aviso cuando el agente no tiene ningún número elegible --}}
+                <div id="smsComposeChannelNone" style="display:none;font-size:12px;color:var(--danger);padding:2px 0;">
+                    You do not have an outbound SMS number assigned to one of your active queues.
+                </div>
+            </div>
+
+            <div style="margin-bottom:14px;">
+                <label style="display:block;font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:5px;">
+                    Link to lead <span style="font-weight:400;">(optional)</span>
+                </label>
+                <div style="position:relative;" id="smsComposeLeadWrap">
+                    <div id="smsComposeLeadSearch">
+                        <input type="text" id="smsComposeLeadInput" class="form-control"
+                            placeholder="Search lead by name or phone..."
+                            oninput="debounceSmsLeadSearch(this.value)"
+                            autocomplete="off">
+                        <div id="smsComposeLeadDropdown" style="display:none;position:fixed;z-index:9999;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);max-height:200px;overflow-y:auto;box-shadow:var(--shadow-lg);"></div>
+                    </div>
+                    <div id="smsComposeLeadChip" style="display:none;padding:5px 0;">
+                        <div style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 8px;background:#E6F1FB;border:0.5px solid #B5D4F4;border-radius:20px;font-size:12px;color:#0C447C;font-weight:500;">
+                            <div id="smsComposeLeadChipAvatar" style="width:18px;height:18px;border-radius:50%;background:#185FA5;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">?</div>
+                            <span id="smsComposeLeadChipName">—</span>
+                            <button onclick="clearSmsComposeLead()" style="background:none;border:none;cursor:pointer;color:#185FA5;font-size:15px;line-height:1;padding:0;margin-left:2px;opacity:0.7;">×</button>
+                        </div>
+                    </div>
+                </div>
+                <input type="hidden" id="smsComposeLeadId" value="" />
+            </div>
+
+            <div style="margin-bottom:14px;">
+                <label style="display:block;font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:5px;">Destination number</label>
+                <div id="smsPhoneWrap" style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+                    <div style="position:relative;flex-shrink:0;border-right:1px solid var(--border);">
+                        <select id="smsComposeCountry" style="width:90px;border:none;background:var(--bg-secondary);color:var(--text-strong);font-size:13px;padding:10px 28px 10px 6px;cursor:pointer;outline:none;appearance:none;-webkit-appearance:none;">
+                            <option value="52">🇲🇽 +52</option>
+                            <option value="1">🇺🇸 +1</option>
+                            <option value="34">🇪🇸 +34</option>
+                            <option value="57">🇨🇴 +57</option>
+                        </select>
+                        <i class="bi bi-chevron-down" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--text-muted);pointer-events:none;"></i>
+                    </div>
+                    <input id="smsComposePhone" type="tel" placeholder="6621234567" maxlength="10"
+                        style="flex:1;border:none;padding:10px 10px;font-size:13px;background:var(--bg-card);color:var(--text-strong);outline:none;" />
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">10 digits without country code</div>
+            </div>
+
+            <div style="margin-bottom:14px;">
+                <label style="display:block;font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:5px;">Template <span style="font-weight:400;">(optional)</span></label>
+                <div style="position:relative;">
+                    <select id="smsComposeTemplate" onchange="applySmsTemplate()"
+                            style="width:100%;padding:9px 36px 9px 12px;font-size:13px;color:var(--text-strong);background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);appearance:none;-webkit-appearance:none;cursor:pointer;outline:none;">
+                        <option value="">— No template (write freely) —</option>
+                    </select>
+                    <i class="bi bi-chevron-down" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text-muted);pointer-events:none;"></i>
+                </div>
+            </div>
+
+            <div style="margin-bottom:14px;">
+                <label style="display:block;font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:5px;">Message</label>
+                <textarea id="smsComposeBody" rows="4" maxlength="1600" oninput="updateSmsSegmentCounter()"
+                    placeholder="Type your message — fully editable (P2P)"
+                    style="width:100%;padding:10px 12px;font-size:13px;color:var(--text-strong);background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);outline:none;resize:vertical;"></textarea>
+                <div id="smsSegmentCounter" style="font-size:11px;color:var(--text-muted);margin-top:4px;"></div>
+            </div>
+
+        </div>
+
+        <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;">
+            <button onclick="closeSmsComposeModal()" class="btn btn-secondary">Cancel</button>
+            <button onclick="sendSmsP2p()" id="smsSendBtn" class="btn btn-primary" style="display:flex;align-items:center;gap:6px;">
+                <i class="bi bi-chat-text"></i> Send SMS
+            </button>
+        </div>
+
+    </div>
+</div>
+
+@endsection
+
+@push('scripts')
+<div
+    id="preview-dialer-config"
+    data-enabled="{{ $previewDialerConfig['enabled'] ? 'true' : 'false' }}"
+    data-user-id="{{ $previewDialerConfig['user_id'] }}"
+    data-tenant-id="{{ $previewDialerConfig['tenant_id'] }}"
+    data-eligibility-url="{{ route('console.preview.eligibility') }}"
+    data-current-url="{{ route('console.preview.offers.current') }}"
+    data-claim-url="{{ route('console.preview.offers.claim') }}"
+    data-accept-url-template="{{ url('/console/preview/offers/__TOKEN__/accept') }}"
+    data-decline-url-template="{{ url('/console/preview/offers/__TOKEN__/decline') }}"
+    data-expire-url-template="{{ url('/console/preview/offers/__TOKEN__/expire') }}"
+    data-link-url-template="{{ url('/console/preview/offers/__TOKEN__/link') }}"
+    data-recover-stale-call-url-template="{{ url('/console/preview/offers/__TOKEN__/recover-stale-call') }}"
+    data-poll-interval="{{ $previewDialerConfig['poll_interval'] }}"
+    hidden
+></div>
+@php($consoleAssetVersion = urlencode((string) config('app.asset_version', '1')))
+<script src="{{ asset('js/preview-dialer-agent.js') }}?v={{ $consoleAssetVersion }}"></script>
+<script src="{{ asset('js/voice/header-status-timer.js') }}?v={{ $consoleAssetVersion }}"></script>
+@if($voiceCapability['eligible'])
+<script>
+window.AgentConsoleVoiceConfig = {
+    csrfToken: document.querySelector('meta[name="csrf-token"]').content,
+    capability: @json($voiceCapability),
+    initialState: @json($voiceConsoleState),
+    quickCallPrepareUrl: @json(route('voice.quick-call.prepare')),
+    // Voice conversations pre-formatted for synchronous tray hydration.
+    initialVoiceConversations: @json($initialVoiceConversations),
+    queueDisplayNames: @json(auth()->user()->omniQueues()->pluck('omni_queues.name', 'omni_queues.id')),
+    campaignDisplayNames: @json(($voiceCampaigns ?? collect())->pluck('name', 'id')),
+};
+</script>
+<script src="{{ asset('js/voice/jssip.min.js') }}?v={{ $consoleAssetVersion }}"></script>
+<script src="{{ asset('js/voice/voice-api-client.js') }}?v={{ $consoleAssetVersion }}"></script>
+<script src="{{ asset('js/voice/voice-call-manager.js') }}?v={{ $consoleAssetVersion }}"></script>
+<script src="{{ asset('js/voice/voice-session-manager.js') }}?v={{ $consoleAssetVersion }}"></script>
+<script src="{{ asset('js/agent-console-voice-adapter.js') }}?v={{ $consoleAssetVersion }}"></script>
+<script>
+window.agentConsoleVoiceAdapter = new window.xedikVoice.AgentConsoleVoiceAdapter(
+    window.AgentConsoleVoiceConfig
+);
+window.agentConsoleVoiceAdapter.startEarlyWarmUp().catch(function () {});
+</script>
+@endif
+@if(!$voiceCapability['eligible'])
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    window.PreviewDialerAgent?.onConsoleReadinessChanged?.({
+        agentStatus: @json($voiceConsoleState['status']),
+        voiceRegistered: true,
+        voiceSessionOwned: true,
+        bootComplete: true,
+    });
+});
+</script>
+@endif
+
+<script src="{{ asset('js/vendor/emoji-mart/browser.js') }}"></script>
+<script src="{{ asset('js/console-lead-panel.js') }}?v={{ $consoleAssetVersion }}"></script>
+<script src="{{ asset('js/compose-email.js') }}?v={{ $consoleAssetVersion }}"></script>
+<script src="{{ asset('js/sms-segment-counter.js') }}?v={{ $consoleAssetVersion }}"></script>
+
+<script>
+window.LeadPanel.init(@json($leadStatuses));
+// ── Lead panel toggle ──
+// Default state for a NEW conversation without prior state: open.
+// The agent needs to see Lead info immediately to personalize the interaction.
+let leadPanelOpen = true;
+
+// Per-conversation state store.
+// Key: "conv:{id}" for Email/Facebook/WhatsApp, "voice:{interactionId}" for Voice.
+// When returning to a conversation, its exact open/closed state is restored.
+// New conversations (no stored state) default to open.
+const _leadPanelStateByConv = new Map();
+
+function _leadPanelCurrentKey() {
+    if (activeConversationId) return `conv:${activeConversationId}`;
+    const vId = window.agentConsoleVoiceAdapter?.activeVoiceInteractionId;
+    return vId ? `voice:${vId}` : null;
+}
+
+// Apply open/close WITHOUT saving — used when restoring state during navigation.
+function _applyLeadPanel(open) {
+    const lp  = document.getElementById('leadPanel');
+    const btn = document.getElementById('btnToggleLead');
+    if (!lp) return;
+    if (open) {
+        lp.classList.add('open');
+        leadPanelOpen = true;
+        if (btn) btn.style.background = 'var(--primary-light)';
+    } else {
+        lp.classList.remove('open');
+        leadPanelOpen = false;
+        if (btn) btn.style.background = 'var(--bg-th)';
+    }
+}
+
+function openLeadPanel() {
+    _applyLeadPanel(true);
+    const key = _leadPanelCurrentKey();
+    if (key) {
+        _leadPanelStateByConv.set(key, true);
+        console.log('[LEAD PANEL STATE][save]', { key, value: true });
+    }
+}
+
+function closeLeadPanel() {
+    _applyLeadPanel(false);
+    const key = _leadPanelCurrentKey();
+    if (key) {
+        _leadPanelStateByConv.set(key, false);
+        console.log('[LEAD PANEL STATE][save]', { key, value: false });
+    }
+}
+
+// Restore stored state for a conversation, or open by default (new conversation).
+// Called during navigation so each conversation remembers its panel state.
+function _restoreLeadPanelFor(key) {
+    const hasStored = _leadPanelStateByConv.has(key);
+    const stored    = hasStored ? _leadPanelStateByConv.get(key) : true;
+    console.log('[LEAD PANEL STATE][restore]', {
+        key,
+        hasStoredValue: hasStored,
+        storedValue:    hasStored ? stored : undefined,
+        defaultValue:   !hasStored ? true : undefined,
+        applying:       stored,
+    });
+    _applyLeadPanel(stored);
+}
+window.restoreLeadPanelFor = _restoreLeadPanelFor; // exposed for the adapter
+
+/**
+ * Notify that a Lead was updated from within the console (e.g. edit name).
+ * Updates tray card names immediately — no poll needed.
+ *
+ * Covers:
+ *  - Email/Facebook/WhatsApp/Chat: conv-item cards with data-lead-id + [data-conv-name] span
+ *  - Voice: voiceInteractions in adapter (uses displayName + renderTrayInteractions)
+ *
+ * Does NOT re-render conversations, restart timers, or touch SIP.
+ */
+window.notifyLeadUpdated = function(leadId, firstName, lastName) {
+    if (!leadId) return;
+    const newName = [firstName, lastName].filter(v => v && v.trim()).join(' ');
+    if (!newName) return;
+
+    // Email/Facebook/WhatsApp/Chat tray cards
+    document.querySelectorAll(`.conv-item[data-lead-id="${leadId}"]`).forEach(card => {
+        const span = card.querySelector('[data-conv-name]');
+        if (span) span.textContent = newName;
+    });
+
+    // Voice interactions (adapter manages its own tray cards)
+    const adapter = window.agentConsoleVoiceAdapter;
+    if (adapter) {
+        let voiceChanged = false;
+        adapter.voiceInteractions?.forEach(interaction => {
+            if (String(interaction.leadId) === String(leadId)) {
+                interaction.displayName = newName;
+                if (interaction.lead) {
+                    interaction.lead.first_name = firstName;
+                    interaction.lead.last_name  = lastName;
+                }
+                voiceChanged = true;
+            }
+        });
+        if (voiceChanged) adapter.renderTrayInteractions?.();
+    }
+};
+
+// When a Voice interaction gets a conversationId, migrate the stored state from
+// the local key ('voice:voice-local-uuid') to the persistent key ('conv:{id}').
+// This ensures the state survives if the interaction is later recovered from DB.
+// Only migrates if localKey has a value and persistedKey does not (no overwrite).
+window.migrateLeadPanelState = function(fromKey, toKey) {
+    const hasFrom = _leadPanelStateByConv.has(fromKey);
+    const hasTo   = _leadPanelStateByConv.has(toKey);
+    if (hasFrom && !hasTo) {
+        const value = _leadPanelStateByConv.get(fromKey);
+        _leadPanelStateByConv.set(toKey, value);
+        console.log('[LEAD PANEL STATE][migrate]', { fromKey, toKey, value });
+    } else {
+        console.log('[LEAD PANEL STATE][migrate:skip]', { fromKey, toKey, hasFrom, hasTo });
+    }
+};
+
+function toggleLeadPanel() {
+    if (leadPanelOpen) {
+        closeLeadPanel();
+    } else {
+        openLeadPanel();
+        // For Voice, render whatever state lead lookup is in (found/loading/not_found).
+        // Lookup was already started by selectInteraction — button click is only visibility.
+        const adapter = window.agentConsoleVoiceAdapter;
+        if (adapter?.activeVoiceInteractionId) {
+            adapter.renderLeadForActiveInteraction();
+        }
+        // For Email/Facebook/WhatsApp, panel content was set by renderConversation().
+    }
+}
+
+// ── Tools menu toggle ──
+function toggleToolsMenu() {
+    const menu = document.getElementById('toolsMenu');
+    const emailDd = document.getElementById('notifDropdown');
+    const waDd = document.getElementById('notifWaDropdown');
+    if (emailDd) emailDd.style.display = 'none';
+    if (waDd) waDd.style.display = 'none';
+    menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+
+function closeToolsMenu() {
+    const menu = document.getElementById('toolsMenu');
+    if (menu) menu.style.display = 'none';
+}
+
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('#toolsBtn') && !e.target.closest('#toolsMenu')) {
+        closeToolsMenu();
+    }
+});
+
+// ── Status vars ──
+let statusSince   = new Date(@json($voiceConsoleState['status_since']));
+let currentStatus = @json($voiceConsoleState['status']);
+let currentPauseReasonName  = @json($session?->pauseReason?->name);
+let currentPauseReasonColor = @json($session?->pauseReason?->color);
+let currentPauseReasonId    = @json($session?->pause_reason_id);
+let statusSelectorEnabled = @json(!$voiceConsoleState['selector_disabled']);
+let statusCommitPending = false;
+let maxMinutes    = {{ $session?->pauseReason?->max_minutes ?? 'null' }};
+
+// ── Inicializar estado visual al cargar ──
+// Guarded the same way startTimer() is: if a hydrated in_call/wrap_up Voice
+// state already painted the header (via prepareVoice() -> recomputeEffective-
+// VoiceStatusOverlay(), which runs synchronously earlier in this same script
+// through startEarlyWarmUp()), this raw requested-only paint must not stomp it
+// back to "Offline" once DOMContentLoaded fires.
+document.addEventListener('DOMContentLoaded', function() {
+    if (window.agentConsoleVoiceAdapter?.hasActiveEffectiveVoiceStatusOverlay?.()) {
+        return;
+    }
+
+    const pauseColor = "{{ $session?->pauseReason?->color ?? '#f59e0b' }}";
+    const pauseName  = "{{ $session?->pauseReason?->name ?? '' }}";
+    const presentation = agentStatusPresentation(currentStatus, pauseName, pauseColor);
+
+    document.getElementById('statusDot').style.background = presentation.dotColor;
+    document.getElementById('statusLabel').textContent    = presentation.label;
+});
+
+// ── Timer ──
+// Single-owner rule: this is the ONLY function allowed to drive the requested-
+// status (Ready/Paused/Offline) header display, and it always goes through
+// window.HeaderStatusTimer — the one shared writer for #statusDot/#statusLabel/
+// #statusTimer. When the Voice adapter's effective overlay (Ringing/In Call/
+// Wrap-Up) is active, it — not the requested status — owns the header, so this
+// is a deliberate no-op: currentStatus/statusSince are still updated by callers
+// (cached), and repaintRequestedAgentStatus() will call this again once the
+// overlay clears.
+function startTimer() {
+    if (window.agentConsoleVoiceAdapter?.hasActiveEffectiveVoiceStatusOverlay?.()) {
+        return;
+    }
+    const presentation = agentStatusPresentation(
+        currentStatus,
+        currentPauseReasonName,
+        currentPauseReasonColor
+    );
+    if (!window.HeaderStatusTimer?.set) {
+        console.error('[status] HeaderStatusTimer is unavailable.');
+
+        const statusDot = document.getElementById('statusDot');
+        const statusLabel = document.getElementById('statusLabel');
+        const statusTimer = document.getElementById('statusTimer');
+
+        if (statusDot) {
+            statusDot.style.background = presentation.dotColor;
+        }
+
+        if (statusLabel) {
+            statusLabel.textContent = presentation.label;
+        }
+
+        if (statusTimer) {
+            statusTimer.textContent = '00:00:00';
+        }
+
+        return;
+    }
+
+    window.HeaderStatusTimer.set(currentStatus, statusSince, {
+        label: presentation.label,
+        dotColor: presentation.dotColor,
+        maxSeconds: maxMinutes ? maxMinutes * 60 : null,
+    });
+}
+startTimer();
+
+// ── Agent signature (preloaded from server) ──
+window.agentSignature = @json(auth()->user()->signature ?? '');
+window.ConsoleConfig = {
+    waTemplates: {!! json_encode($waTemplates->map(fn($t) => ['name' => $t->name, 'display_name' => $t->display_name, 'language' => $t->language, 'body_preview' => $t->body_preview])) !!},
+    smsEligibleChannels: {!! json_encode($smsEligibleChannels) !!},
+    smsTemplates: {!! json_encode($smsTemplates->map(fn($t) => ['id' => $t->id, 'name' => $t->name, 'body' => $t->body, 'omni_queue_id' => $t->omni_queue_id])) !!},
+    maxSmsSegments: {{ (int) config('sms.max_p2p_segments', 3) }},
+};
+window.ComposeConfig = {
+    showDisposition: false,
+    dispositions:    [],
+    signature:       @json(auth()->user()->signature ?? ''),
+    onSendSuccess: async function(data) {
+        if (!@json($voiceCapability['eligible']) && typeof setStatus === 'function' && typeof currentStatus !== 'undefined' && currentStatus !== 'ready') {
+            await setStatus('ready');
+        }
+        if (_composeLeadLocked) {
+            window.location.href = '/console?open=' + data.conversation_id;
+        } else {
+            const convId = data.conversation_id;
+            const grid   = document.getElementById('consoleGrid');
+            grid.style.gridTemplateColumns = '280px 1fr 300px';
+            let leftPanel = document.querySelector('#consoleGrid > div[style*="border-right"]');
+            if (leftPanel) {
+                leftPanel.style.display = 'flex';
+            } else {
+                const newLeft = document.createElement('div');
+                newLeft.style.cssText = 'border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;background:var(--bg-card);overflow:hidden;width:280px;flex-shrink:0;';
+                newLeft.innerHTML = `
+                    <div style="display:flex;border-bottom:1px solid var(--border);padding:0 8px;">
+                        <button class="console-tab active" data-tab="all" onclick="filterTab('all')">
+                            <i class="bi bi-grid"></i> All
+                        </button>
+                        <button class="console-tab" data-tab="email" onclick="filterTab('email')">
+                            <i class="bi bi-envelope"></i> Email
+                        </button>
+                        <button class="console-tab" data-tab="chat" onclick="filterTab('chat')">
+                            <i class="bi bi-chat"></i> Chat
+                        </button>
+                    </div>
+                    <div style="padding:10px 12px;border-bottom:1px solid var(--border);">
+                        <div style="position:relative;">
+                            <i class="bi bi-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;"></i>
+                            <input type="text" placeholder="Search inbox..." id="searchInbox"
+                                style="width:100%;padding:8px 8px 8px 32px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--bg-input);color:var(--text-strong);outline:none;">
+                        </div>
+                    </div>
+                    <div style="flex:1;overflow-y:auto;min-height:0;" id="conversationList"></div>
+                `;
+                grid.insertBefore(newLeft, grid.firstChild);
+            }
+            const lp = document.getElementById('leadPanel');
+            if (lp) {
+                lp.style.cssText = 'display:flex;flex-direction:column;overflow:hidden;min-height:0;border-left:1px solid var(--border);background:var(--bg-card);';
+            }
+            openConversation(convId);
+            refreshConversationList();
+        }
+    },
+};
+const agentInitial = "{{ substr(auth()->user()->name, 0, 1) }}";
+
+// ── Notification polling ──
+let lastUnreadCount = 0;
+
+document.addEventListener('click', () => {
+    const audio = document.getElementById('notifAudio');
+    if (!audio) return;
+    audio.muted = true;
+    audio.play().then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.muted = false;
+        console.log('[audio] unlocked — browser autoplay enabled');
+    }).catch(() => { audio.muted = false; });
+}, { once: true });
+
+let _lastSoundAt = 0;
+function playNotifSound(reason) {
+    const now = Date.now();
+    if (now - _lastSoundAt < 3000) {
+        console.log(`[sound] BLOCKED — throttle (last was ${Math.round((now - _lastSoundAt)/1000)}s ago) | reason: ${reason}`);
+        return;
+    }
+    _lastSoundAt = now;
+    console.log(`[sound] PLAYING | reason: ${reason}`);
+    const audio = document.getElementById('notifAudio');
+    if (!audio) return;
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
+}
+
+window.activeConversationId = null;
+let isLoadingConversation = false;
+let _voiceOpenToken = 0; // incremented on each openConversation() to cancel stale voice fetches
+let _activeVoiceOpenKey = null;
+const _voiceConversationFetches = new Map();
+let initialPollDone = false;
+let _pollInFlight = false;
+// IDs de mensajes ya conocidos de la conv activa — baseline poblado al abrir, nunca del DOM
+let _knownMsgIds = new Set();
+
+// ── Script tab state ──────────────────────────────────────────────────────────
+// Stores the resolved script from the current conversation payload.
+// Reset to null on each new conversation to avoid showing stale scripts.
+let _currentScriptData = null;
+
+/**
+ * Switch between the Conversation and Script tabs.
+ * Uses CSS display toggling so Jodit and waReplyBody state are preserved.
+ */
+function switchConvTab(tab) {
+    const convArea   = document.getElementById('convContentArea');
+    const scriptArea = document.getElementById('scriptContentArea');
+    const tabConv    = document.getElementById('tabConv');
+    const tabScript  = document.getElementById('tabScript');
+    if (!convArea || !scriptArea) return;
+
+    if (tab === 'script') {
+        convArea.style.display   = 'none';
+        scriptArea.style.display = 'flex';
+        tabConv?.classList.remove('active');
+        tabScript?.classList.add('active');
+    } else {
+        convArea.style.display   = 'flex';
+        scriptArea.style.display = 'none';
+        tabConv?.classList.add('active');
+        tabScript?.classList.remove('active');
+    }
+}
+
+function renderConversationTabs() {
+    return `<div style="display:flex;border-bottom:1px solid var(--border);background:var(--bg-card);flex-shrink:0;height:54px;">
+        <button id="tabConv" onclick="switchConvTab('conversation')"
+            class="console-tab active"
+            style="padding:0 16px;display:flex;align-items:center;gap:6px;">
+            <i class="bi bi-chat-left-text" style="font-size:13px;"></i>
+            Conversation
+        </button>
+        <button id="tabScript" onclick="switchConvTab('script')"
+            class="console-tab"
+            style="padding:0 16px;display:flex;align-items:center;gap:6px;">
+            <i class="bi bi-file-text" style="font-size:13px;"></i>
+            Script
+        </button>
+    </div>`;
+}
+
+/**
+ * Render the script content area HTML for a given script payload.
+ * Returned as a string for injection into panelHtml.
+ */
+function _renderScriptContent(script, scriptSource, emptyMessage = null) {
+    if (!script) {
+        return `<div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:var(--text-muted);padding:24px;">
+            <i class="bi bi-file-text" style="font-size:36px;"></i>
+            <div style="font-size:14px;font-weight:500;">No script configured</div>
+            <div style="font-size:12px;max-width:280px;text-align:center;line-height:1.5;">
+                ${_escHtml(emptyMessage || "No script has been assigned to this conversation's queue or campaign.")}
+            </div>
+        </div>`;
+    }
+
+    const sourceLabel = {
+        'selected':              'Selected',
+        'explicit':              'Selected',
+        'queue':                 'Queue',
+        'queue_script':          'Queue',
+        'queue_campaign_default':'Campaign Default',
+        'campaign_default':      'Campaign Default',
+        'lead_campaign_default': 'Lead Campaign',
+        'lead_campaign':         'Lead Campaign',
+    }[scriptSource] || '';
+
+    // Title + subtle badge — lives inside the content container, not as a separate nav bar
+    const badgeHtml = sourceLabel
+        ? `<span style="font-size:11px;font-weight:500;padding:3px 8px;border-radius:999px;background:var(--bg-th);color:var(--text-muted);border:1px solid var(--border);white-space:nowrap;flex-shrink:0;">${_escHtml(sourceLabel)}</span>`
+        : '';
+    const titleHtml = `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:12px;margin-bottom:16px;border-bottom:1px solid var(--border);">
+            <span style="font-size:15px;font-weight:600;line-height:1.3;color:var(--text-strong);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_escHtml(script.name)}</span>
+            ${badgeHtml}
+        </div>`;
+
+    if (script.type === 'url') {
+        const url = _buildScriptUrl(script);
+        if (script.url_target === 'panel') {
+            return `
+                <div style="flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;">
+                    <div style="flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;">
+                        <iframe src="${_escHtml(url)}"
+                            style="flex:1;width:100%;border:none;min-height:0;"
+                            sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+                            referrerpolicy="no-referrer"
+                            title="Script: ${_escHtml(script.name)}"></iframe>
+                        <div style="padding:6px 12px;font-size:11px;color:var(--text-muted);border-top:1px solid var(--border);">
+                            If the page doesn't load, <a href="${_escHtml(url)}" target="_blank" rel="noopener noreferrer" style="color:var(--primary);">open in a new tab</a>.
+                        </div>
+                    </div>
+                </div>`;
+        }
+        // tab or modal (modal degrades to tab in v1)
+        return `
+            <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
+                <div style="max-width:1050px;padding:18px 22px 0;flex-shrink:0;">
+                    ${titleHtml}
+                </div>
+                <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:24px;color:var(--text-muted);">
+                    <i class="bi bi-box-arrow-up-right" style="font-size:32px;"></i>
+                    <div style="font-size:13px;font-weight:500;color:var(--text-strong);">${_escHtml(script.name)}</div>
+                    <a href="${_escHtml(url)}" target="_blank" rel="noopener noreferrer"
+                       class="btn btn-primary btn-sm">
+                        <i class="bi bi-box-arrow-up-right"></i> Open Script
+                    </a>
+                </div>
+            </div>`;
+    }
+
+    // builder — show sanitized HTML read-only
+    return `
+        <div style="flex:1;overflow-y:auto;padding:18px 22px 24px;max-width:1050px;font-size:16px;line-height:1.65;color:var(--text-strong);" class="script-rich-content">
+            ${titleHtml}
+            ${script.body || '<em style="color:var(--text-muted);">Script body is empty.</em>'}
+        </div>`;
+}
+
+/** Build the script URL with allowed url_params appended as query string */
+function _buildScriptUrl(script) {
+    if (!script.url) return '#';
+    const metaEl = document.getElementById('_scriptMeta');
+    const meta = metaEl ? JSON.parse(metaEl.dataset.meta || '{}') : {};
+    const params = new URLSearchParams();
+    const allowed = ['conversation_id','lead_id','campaign_id','queue_id','channel','direction'];
+    Object.entries(script.url_params || {}).forEach(([k, v]) => {
+        if (allowed.includes(k) && v && meta[k] != null) {
+            params.set(k, meta[k]);
+        }
+    });
+    const qs = params.toString();
+    return script.url + (qs ? (script.url.includes('?') ? '&' : '?') + qs : '');
+}
+
+/** Minimal HTML entity escape for use in JS template strings */
+function _escHtml(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+const HEADER_CHANNEL_LABELS = {
+    sms: 'SMS', whatsapp: 'WhatsApp', email: 'Email', chat: 'Webchat',
+    facebook: 'Facebook', instagram: 'Instagram', social: 'Social', voice: 'Voice',
+};
+
+const CONVERSATION_CONTEXT_ITEM_META = {
+    source:   { label: 'Source',   icon: 'bi-broadcast-pin', bg: '#EEF8F3', color: '#2E9D6F' },
+    contact:  { label: 'Contact',  icon: 'bi-person',        bg: '#F1EEFF', color: '#6C5CE7' },
+    campaign: { label: 'Campaign', icon: 'bi-megaphone',     bg: '#EEF3FF', color: '#3267D6' },
+    queue:    { label: 'Queue',    icon: 'bi-people',        bg: '#ECF8F8', color: '#269AA3' },
+};
+
+function _conversationContextChannelMeta(channel) {
+    const base = _channelMeta(channel);
+    const icons = {
+        sms: 'bi-chat-text',
+        email: 'bi-envelope',
+        whatsapp: 'bi-whatsapp',
+        facebook: 'bi-facebook',
+        instagram: 'bi-instagram',
+        chat: 'bi-chat-fill',
+        webchat: 'bi-chat-fill',
+        voice: 'bi-telephone',
+    };
+    const labels = {
+        ...HEADER_CHANNEL_LABELS,
+        webchat: 'Webchat',
+    };
+
+    return {
+        ...base,
+        icon: icons[channel] || base.icon || 'bi-chat-dots',
+        label: labels[channel] || base.label || channel || '',
+    };
+}
+
+function _conversationContextName(value) {
+    if (value && typeof value === 'object') {
+        return value.name ?? null;
+    }
+
+    return value;
+}
+
+function _conversationContextFirstValue(values, options = {}) {
+    for (const value of values) {
+        const text = String(value ?? '').trim();
+        if (text === '' || text === 'null' || text === 'undefined' || text === '—') {
+            continue;
+        }
+        if (options.rejectNumeric && /^\d+$/.test(text)) {
+            continue;
+        }
+
+        return text;
+    }
+
+    return '';
+}
+
+function _buildConversationContextHeader(conv, lead, options = {}) {
+    const channel = conv.channel || options.channel || '';
+    const channelMeta = _conversationContextChannelMeta(channel);
+    const source = conv.entry_point_name || conv.entry_point_address || options.source || '';
+    const contact = options.contact || _resolveHeaderContact(conv, lead);
+    const campaign = _conversationContextFirstValue([
+        conv.campaign_name,
+        _conversationContextName(conv.campaign),
+        _conversationContextName(conv.omni_queue?.campaign),
+        _conversationContextName(conv.omniQueue?.campaign),
+        options.campaign,
+        lead?.campaign_name,
+        _conversationContextName(lead?.campaign),
+    ], { rejectNumeric: true });
+    const queue = conv.queue_name || options.queue || '';
+
+    const items = [
+        ['source', source],
+        ['contact', contact],
+        ['campaign', campaign],
+        ['queue', queue],
+    ].filter(([, value]) => {
+        const text = String(value ?? '').trim();
+        return text !== '' && text !== 'null' && text !== 'undefined' && text !== '—';
+    });
+
+    const itemHtml = items.map(([key, value], index) => {
+        const meta = CONVERSATION_CONTEXT_ITEM_META[key];
+        const safeValue = _escHtml(String(value).trim());
+        const lastClass = index === items.length - 1 ? ' is-last' : '';
+        return `
+            <div class="conversation-context-item${lastClass}">
+                <span class="conversation-context-icon" style="background:${meta.bg};color:${meta.color};">
+                    <i class="bi ${meta.icon}"></i>
+                </span>
+                <span class="conversation-context-copy">
+                    <span class="conversation-context-label">${meta.label}</span>
+                    <span class="conversation-context-value" title="${safeValue}">${safeValue}</span>
+                </span>
+            </div>`;
+    }).join('');
+
+    const safeChannelLabel = _escHtml(channelMeta.label || channel);
+
+    return `
+        <div class="conversation-context-content">
+            ${safeChannelLabel ? `
+            <span class="conversation-context-channel" style="background:${channelMeta.bg};color:${channelMeta.color};">
+                <i class="bi ${channelMeta.icon}"></i>
+                <span>${safeChannelLabel}</span>
+            </span>` : ''}
+            ${itemHtml}
+        </div>`;
+}
+
+// Expose tab/script-rendering helpers on window so the Voice adapter (loaded as an
+// external script file) can call them.  Function declarations in the Script Scope are
+// NOT guaranteed to appear on the global object in all browser contexts — explicit
+// assignment is the safe contract (same pattern as setCurrentDispositions, isLeadPanelOpen).
+window.renderConversationTabs  = renderConversationTabs;
+window.switchConvTab            = switchConvTab;
+window._renderScriptContent    = _renderScriptContent;
+window._buildScriptUrl         = _buildScriptUrl;
+window._escHtml                = _escHtml;
+window.buildConversationContextHeader = _buildConversationContextHeader;
+// Signal the Voice adapter that panel helpers are now registered.
+// Any interaction that tried to render before this point will be flushed.
+window.dispatchEvent(new CustomEvent('agent-console-panel-ready'));
+
+// Sincroniza el hilo abierto contra el backend (mismo fetch seguro que ya
+// usaba pollUnread) — fuente única usada tanto por el polling de fallback
+// como por el handler de Pusher NewConversationReceived, para que ambos
+// compartan el mismo _knownMsgIds y nunca se notifique dos veces el mismo
+// message_id: si Pusher ya sincronizó y marcó los ids como conocidos, el
+// siguiente ciclo de poll ve "new: 0" para esos mismos mensajes.
+async function syncActiveConversationThread(source) {
+    if (!activeConversationId || currentStatus !== 'ready') {
+        return { newCount: 0, newInboundCount: 0 };
+    }
+
+    const conv = await fetch(`/console/conversation/${activeConversationId}`).then(r => r.json());
+    if (conv.conversation?.status === 'resolved') {
+        activeConversationId = null;
+        return { newCount: 0, newInboundCount: 0 };
+    }
+
+    const thread   = document.getElementById('messageThread');
+    const chatArea = document.getElementById('waChatArea');
+    if (!thread && !chatArea) return { newCount: 0, newInboundCount: 0 };
+
+    const newMessages = conv.messages.filter(m => !_knownMsgIds.has(Number(m.id)));
+    const newInbound  = newMessages.filter(m => m.direction === 'inbound');
+    console.log(`[sync:${source}] conv #${activeConversationId} — total: ${conv.messages.length}, known: ${_knownMsgIds.size}, new: ${newMessages.length}, new inbound: ${newInbound.length}`);
+
+    if (newMessages.length === 0) {
+        return { newCount: 0, newInboundCount: 0 };
+    }
+
+    newMessages
+        .sort((a, b) => new Date(a.sent_at_iso) - new Date(b.sent_at_iso))
+        .forEach(m => {
+            _knownMsgIds.add(Number(m.id));
+            if (chatArea) {
+                _waAppendMessage(chatArea, m);
+            } else {
+                thread.insertAdjacentHTML('afterbegin', renderMessage(m));
+            }
+        });
+
+    if (chatArea) {
+        chatArea.scrollTop = chatArea.scrollHeight;
+    } else {
+        thread.scrollTop = 0;
+    }
+
+    fetch(`/console/conversation/${activeConversationId}/read`, {
+        method: 'PATCH',
+        headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
+    });
+
+    return { newCount: newMessages.length, newInboundCount: newInbound.length };
+}
+
+async function pollUnread() {
+    if (_pollInFlight) {
+        console.log('[poll] skipped — previous poll still in flight');
+        return;
+    }
+    _pollInFlight = true;
+    let soundFired = false;
+    try {
+        const [emailData, chatData] = await Promise.all([
+            fetch('/console/unread?channel=email').then(r => r.json()),
+            fetch('/console/unread?channel=chat').then(r => r.json()),
+        ]);
+
+        const emailConvs = emailData.conversations || [];
+        const chatConvs  = chatData.conversations  || [];
+        const count = emailConvs.length + chatConvs.length;
+
+        // Badge email
+        const notifBtn = document.getElementById('notifBtn');
+        let emailBadge = document.getElementById('emailBadge');
+        if (emailConvs.length > 0) {
+            if (!emailBadge) {
+                emailBadge = document.createElement('span');
+                emailBadge.id = 'emailBadge';
+                emailBadge.style.cssText = 'position:absolute;top:-2px;right:-2px;width:16px;height:16px;background:var(--danger);border-radius:50%;font-size:9px;font-weight:700;color:white;display:flex;align-items:center;justify-content:center;';
+                notifBtn.appendChild(emailBadge);
+            }
+            emailBadge.textContent = emailConvs.length;
+        } else {
+            emailBadge?.remove();
+        }
+
+        // Badge chat
+        updateWaBadge(chatConvs.length);
+
+        if (initialPollDone && count > lastUnreadCount && currentStatus === 'ready') {
+            console.log(`[poll] unread count up: ${lastUnreadCount} → ${count}`);
+            if (!soundFired) { playNotifSound('unread count increased'); soundFired = true; }
+        }
+
+        if (document.getElementById('notifDropdown')?.style.display !== 'none') {
+            updateNotifDropdown(emailConvs);
+        }
+        if (document.getElementById('notifWaDropdown')?.style.display !== 'none') {
+            updateWaNotifDropdown(chatConvs);
+        }
+
+        lastUnreadCount = count;
+        initialPollDone = true;
+        refreshConversationList();
+
+        const { newInboundCount } = await syncActiveConversationThread('poll');
+        if (!soundFired && currentStatus === 'ready' && newInboundCount > 0) {
+            playNotifSound(`new inbound in conv #${activeConversationId}`);
+            soundFired = true;
+        }
+    } catch (err) {
+        console.error('[poll] error:', err);
+    } finally {
+        _pollInFlight = false;
+    }
+}
+
+function updateNotifDropdown(conversations) {
+    const dropdown = document.getElementById('notifDropdown');
+    dropdown.querySelectorAll('.notif-item').forEach(el => el.remove());
+
+    if (conversations.length === 0) {
+        const div = document.createElement('div');
+        div.className = 'notif-item';
+        div.style.cssText = 'padding:24px;text-align:center;color:var(--text-muted);font-size:13px;';
+        div.textContent = 'No new emails';
+        dropdown.appendChild(div);
+        return;
+    }
+
+    conversations.slice(0, 5).forEach(conv => {
+        const div = document.createElement('div');
+        div.className = 'notif-item';
+        div.onclick = () => { document.getElementById('notifDropdown').style.display = 'none'; openConversation(conv.id); };
+        div.style.cssText = 'padding:12px 16px;border-bottom:1px solid var(--bg-stripe);cursor:pointer;display:flex;gap:12px;align-items:flex-start;';
+        div.onmouseover = () => div.style.background = 'var(--bg-th)';
+        div.onmouseout  = () => div.style.background = '';
+        div.innerHTML = `
+            <div style="width:32px;height:32px;border-radius:8px;background:#E6F1FB;color:#185FA5;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <i class="bi bi-envelope-fill" style="font-size:14px;"></i>
+            </div>
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:600;color:var(--text-strong);">${conv.from_name || conv.from_email}</div>
+                <div style="font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${conv.subject}</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${conv.wait_since}</div>
+            </div>
+            <span style="width:8px;height:8px;border-radius:50%;background:var(--primary);flex-shrink:0;margin-top:4px;"></span>
+        `;
+        dropdown.appendChild(div);
+    });
+}
+
+async function markAllRead() {
+    await fetch('/console/mark-all-read', {
+        method: 'POST',
+        headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }
+    });
+    pollUnread();
+    refreshConversationList();
+}
+
+// ── Channel helpers (whatsapp/chat/facebook/instagram comparten UI de burbujas) ──
+function _isChatLike(channel) {
+    return ['whatsapp', 'chat', 'facebook', 'instagram', 'sms'].includes(channel);
+}
+function _channelMeta(channel) {
+    switch (channel) {
+        case 'whatsapp':  return { icon: 'bi-whatsapp',                bg: '#E1F5EE', color: '#0F6E56', label: 'WHATSAPP' };
+        case 'email':     return { icon: 'bi-envelope-fill',           bg: '#E6F1FB', color: '#185FA5', label: 'EMAIL' };
+        case 'facebook':  return { icon: 'bi-facebook',                bg: '#E7F0FE', color: '#1877F2', label: 'FACEBOOK' };
+        case 'instagram': return { icon: 'bi-instagram',               bg: '#FDEAF3', color: '#C13584', label: 'INSTAGRAM' };
+        case 'voice':     return { icon: 'bi-telephone-fill',          bg: '#EAF3DE', color: '#3B6D11', label: 'VOICE' };
+        case 'sms':       return { icon: 'bi-chat-text',               bg: '#FAEEDA', color: '#854F0B', label: 'SMS' };
+        default:          return { icon: 'bi-chat-fill',               bg: '#EEEDFE', color: '#3C3489', label: 'WEBCHAT' };
+    }
+}
+function _sendIcon(channel) {
+    switch (channel) {
+        case 'whatsapp':  return 'bi-whatsapp';
+        case 'facebook':  return 'bi-facebook';
+        case 'instagram': return 'bi-instagram';
+        case 'sms':       return 'bi-chat-text';
+        default:          return 'bi-send';
+    }
+}
+
+function refreshConversationList() {
+    return fetch('/console/my-conversations')
+        .then(r => r.json())
+        .then(conversations => {
+            let list = document.getElementById('conversationList');
+
+            if (conversations.length === 0) {
+                // No limpiar el panel si el agente tiene una conversación abierta
+                if (activeConversationId || document.getElementById('voiceCallPanel')) return;
+
+                const leftPanel = document.querySelector('#consoleGrid > div[style*="border-right"]');
+                if (leftPanel) leftPanel.style.display = 'none';
+
+                closeLeadPanel();
+                document.getElementById('messagePanel').innerHTML = `
+                    <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;color:var(--text-muted);">
+                        <i class="bi bi-inbox" style="font-size:64px;opacity:0.3;"></i>
+                        <div style="font-size:16px;font-weight:600;color:var(--text-strong);">No active conversations</div>
+                        <div style="font-size:13px;">New conversations will appear here automatically</div>
+                    </div>`;
+                return;
+            }
+
+            const grid = document.getElementById('consoleGrid');
+
+            const leftPanel = document.querySelector('#consoleGrid > div[style*="border-right"]');
+            if (leftPanel) leftPanel.style.display = 'flex';
+            if (!leftPanel) {
+                const newLeft = document.createElement('div');
+                newLeft.style.cssText = 'border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;background:var(--bg-card);overflow:hidden;width:280px;flex-shrink:0;';
+                newLeft.innerHTML = `
+                    <div style="display:flex;border-bottom:1px solid var(--border);padding:0 8px;">
+                        <button class="console-tab active" data-tab="all" onclick="filterTab('all')">
+                            <i class="bi bi-grid"></i> All
+                        </button>
+                        <button class="console-tab" data-tab="email" onclick="filterTab('email')">
+                            <i class="bi bi-envelope"></i> Email
+                        </button>
+                        <button class="console-tab" data-tab="chat" onclick="filterTab('chat')">
+                            <i class="bi bi-chat"></i> Chat
+                        </button>
+                    </div>
+                    <div style="padding:10px 12px;border-bottom:1px solid var(--border);">
+                        <div style="position:relative;">
+                            <i class="bi bi-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;"></i>
+                            <input type="text" placeholder="Search inbox..." id="searchInbox"
+                                oninput="filterInbox(this.value)"
+                                style="width:100%;padding:8px 8px 8px 32px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--bg-input);color:var(--text-strong);outline:none;">
+                        </div>
+                    </div>
+                    <div style="flex:1;overflow-y:auto;min-height:0;" id="conversationList"></div>
+                `;
+                grid.insertBefore(newLeft, grid.firstChild);
+                list = document.getElementById('conversationList');
+                const convList = document.getElementById('conversationList');
+                if (convList) {
+                    convList.style.display = '';
+                    convList.closest('div').style.display = '';
+                }
+            }
+
+            if (!document.getElementById('leadPanel').innerHTML.trim()) {
+                document.getElementById('leadPanel').innerHTML = `
+                    <div style="padding:40px 20px;text-align:center;color:var(--text-muted);">
+                        <i class="bi bi-person-circle" style="font-size:48px;display:block;margin-bottom:8px;"></i>
+                        <div style="font-size:13px;">No conversation selected</div>
+                    </div>
+                `;
+            }
+
+            if (!document.getElementById('messageThread') && !document.getElementById('waChatArea') && !document.getElementById('voiceCallPanel') && !isLoadingConversation) {
+                document.getElementById('messagePanel').innerHTML = `
+                    <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--text-muted);">
+                        <i class="bi bi-chat-left-text" style="font-size:48px;"></i>
+                        <div style="font-size:14px;">Select a conversation to start</div>
+                    </div>
+                `;
+            }
+
+            const emptyState = list.querySelector('.empty-conversations');
+            if (emptyState) emptyState.remove();
+
+            conversations.forEach(conv => {
+                // Voice conversations: the adapter owns ALL voice tray cards (voice-local-card).
+                // Never create a generic conv-item for voice — it would duplicate the adapter card.
+                //
+                // Case A: adapter already has a matching local interaction → it already has a card.
+                // Case B: no local interaction (refresh recovery) → inject a recovery entry so the
+                //         adapter's renderTrayInteractions() creates the correct voice-local-card.
+                //         The user can click it; openConversation() will route to
+                //         renderVoiceConversationFromBackend() which fully hydrates it.
+                //
+                // In BOTH cases: skip the generic conv-item creation below.
+                if (conv.channel === 'voice') {
+                    const adapter = window.agentConsoleVoiceAdapter;
+                    if (adapter) {
+                        // Never-answered-terminal Conversations (Reject/Missed/Cancelled/
+                        // Queue-timeout before answer) must never be resurrected into the
+                        // tray by polling — they are intentionally left active+undispositioned
+                        // in the DB for a future AMI/Queue-outcome reconciler. Reuses the same
+                        // predicate as initial hydration so both paths agree.
+                        if (adapter.shouldHydrateVoiceConversation
+                            && !adapter.shouldHydrateVoiceConversation(conv)) {
+                            return;
+                        }
+
+                        const callUuid = conv.external_id || null;
+                        const localId  = callUuid
+                            ? `voice-local-${callUuid}`
+                            : `voice-local-db-${conv.id}`;
+
+                        const hasLocal = Array.from(adapter.voiceInteractions?.values() || [])
+                            .some(i => i.conversationId === conv.id
+                                || (callUuid && i.callUuid === callUuid)
+                                || i.id === localId);
+
+                        if (!hasLocal) {
+                            // Inject recovery entry so adapter renders the tray card.
+                            // Pass all tray-display fields so the card looks identical to
+                            // a locally-created interaction (name, time, lead state).
+                            const recPhone = conv.remote_phone || conv.from_email || '';
+                            const recLead  = conv.lead_id
+                                ? { id: conv.lead_id, first_name: conv.from_name || '', last_name: '' }
+                                : null;
+                            const recStatus = conv.voice_call_state
+                                ? adapter.visualCallStatus(conv.voice_call_state)
+                                : 'Ended';
+                            const recDirection = conv.voice_direction || 'inbound';
+                            const recTerminal = adapter.isTerminalVisualStatus?.(recStatus) || false;
+                            const recAnsweredAt = conv.voice_call_answered_at || null;
+                            adapter.voiceInteractions.set(localId, {
+                                id:              localId,
+                                conversationId:  conv.id,
+                                voiceCallId:     null,
+                                callUuid:        callUuid,
+                                phone:           recPhone,
+                                normalizedPhone: recPhone,
+                                direction:       recDirection,
+                                status:          recStatus,
+                                backendAnsweredAt: recAnsweredAt,
+                                createdAt:       new Date(),
+                                connectedAt:     recAnsweredAt ? new Date(recAnsweredAt) : null,
+                                endedAt:         null,
+                                events:          [],
+                                lead:            recLead,
+                                leadLookupStatus: conv.lead_id ? 'found' : 'not_found',
+                                leadLookupPromise: null,
+                                // Tray display fields (same as generic conv-item)
+                                _waitSinceAt:    (() => {
+                                    if (!conv.wait_since || conv.wait_since === 'now') return new Date();
+                                    const m = String(conv.wait_since).match(/^(\d+)\s*([mhd])/i);
+                                    if (!m) return new Date();
+                                    const num = parseInt(m[1], 10);
+                                    const mul = ({m:60,h:3600,d:86400}[m[2].toLowerCase()]||60)*1000;
+                                    return new Date(Date.now() - num * mul);
+                                })(),
+                                leadId:          conv.lead_id || null,
+                                displayName:     conv.from_name || recPhone,
+                                fetchPending:    false,
+                                wrapUpPending:   Boolean(conv.is_voice_wrap_up),
+                                needsDisposition: Boolean(conv.is_voice_wrap_up)
+                                    || (recDirection === 'outbound' && recTerminal && !recAnsweredAt),
+                                _recovered:      true,
+                                _fromPoll:        true,
+                            });
+                            adapter.renderTrayInteractions?.();
+                        }
+                        // Always skip generic conv-item for voice
+                        return;
+                    }
+                    // No adapter (voice not enabled) — skip voice rows silently
+                    return;
+                }
+
+                const existing = document.querySelector(`.conv-item[data-id="${conv.id}"]`);
+
+                if (existing) {
+                    const timeEl = existing.querySelector('.conv-time');
+                    const previewEl = existing.querySelector('.conv-preview');
+                    const nameEl = existing.querySelector('[data-conv-name]');
+                    let dot = existing.querySelector('.unread-dot');
+                    const wasUnread = existing.dataset.hasUnread === 'true';
+                    const isUnread  = !!conv.has_unread;
+                    if (timeEl) timeEl.textContent = conv.wait_since;
+                    if (previewEl) previewEl.textContent = conv.preview;
+                    // Refrescar el título tras un auto-link (lead_name puede haber
+                    // aparecido después de renderizada la fila). Misma preferencia
+                    // que la fila nueva: lead_name → from_name → from_email.
+                    if (nameEl) nameEl.textContent = conv.lead_name || conv.from_name || conv.from_email;
+                    existing.dataset.lastMessage = conv.last_message_at;
+                    existing.dataset.hasUnread = isUnread ? 'true' : 'false';
+                    if (isUnread && activeConversationId !== conv.id && !dot) {
+                        dot = document.createElement('span');
+                        dot.className = 'unread-dot';
+                        dot.style.cssText = 'width:8px;height:8px;border-radius:50%;background:var(--primary);flex-shrink:0;margin-top:4px;';
+                        existing.appendChild(dot);
+                    } else if (!isUnread && dot) {
+                        dot.remove();
+                    }
+                    if (conv.lead_id) {
+                        existing.querySelector('.no-lead-badge')?.remove();
+                    }
+                    let aiBadge = existing.querySelector('.ai-bot-badge');
+                    if (conv.ai_bot_active && !aiBadge) {
+                        const badgeRow = existing.querySelector('.no-lead-badge')?.parentElement
+                            || existing.querySelector('.badge')?.parentElement;
+                        if (badgeRow) {
+                            aiBadge = document.createElement('span');
+                            aiBadge.className = 'badge ai-bot-badge';
+                            aiBadge.style.cssText = 'font-size:10px;background:#EDE9FE;color:#6D28D9;';
+                            aiBadge.innerHTML = '<i class="bi bi-robot" style="font-size:9px;"></i> AI BOT';
+                            badgeRow.appendChild(aiBadge);
+                        }
+                    } else if (!conv.ai_bot_active && aiBadge) {
+                        aiBadge.remove();
+                    }
+                } else {
+                    const div = document.createElement('div');
+                    div.className = `conv-item ${conv.channel}`;
+                    div.dataset.id = conv.id;
+                    div.dataset.leadId = conv.lead_id || '';
+                    div.dataset.lastMessage = conv.last_message_at;
+                    div.dataset.hasUnread = conv.has_unread ? 'true' : 'false';
+                    div.onclick = () => openConversation(conv.id);
+                    div.style.cssText = 'padding:12px 14px;border-bottom:1px solid var(--bg-stripe);cursor:pointer;display:flex;gap:10px;align-items:flex-start;';
+                    const chMeta  = _channelMeta(conv.channel);
+                    const chIcon  = chMeta.icon;
+                    const chBg    = chMeta.bg;
+                    const chColor = chMeta.color;
+                    div.innerHTML = `
+                        <div style="width:36px;height:36px;border-radius:10px;background:${chBg};color:${chColor};font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid currentColor;"><i class="bi ${chIcon}"></i></div>
+                        <div style="flex:1;min-width:0;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <span data-conv-name style="font-size:13px;font-weight:600;color:var(--text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">
+                                    ${conv.lead_name || conv.from_name || conv.from_email}
+                                </span>
+                                <span class="conv-time" style="font-size:11px;color:var(--text-muted);flex-shrink:0;">${conv.wait_since}</span>
+                            </div>
+                            <div style="font-size:12px;color:var(--text-mid);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">${conv.subject}</div>
+                            <div class="conv-preview" style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">${conv.preview}</div>
+                            <div style="display:flex;gap:4px;margin-top:4px;">
+                                <span class="badge" style="font-size:10px;background:${chBg};color:${chColor};">${chMeta.label}</span>
+                                ${conv.ai_bot_active ? '<span class="badge ai-bot-badge" style="font-size:10px;background:#EDE9FE;color:#6D28D9;"><i class="bi bi-robot" style="font-size:9px;"></i> AI BOT</span>' : ''}
+                                ${!conv.lead_id ? '<span class="badge badge-warning no-lead-badge" style="font-size:10px;">NO LEAD</span>' : ''}
+                            </div>
+                        </div>
+                        ${conv.has_unread ? '<span class="unread-dot" style="width:8px;height:8px;border-radius:50%;background:var(--primary);flex-shrink:0;margin-top:4px;"></span>' : ''}
+                    `;
+                    list.appendChild(div);
+                }
+            });
+
+            // Reordenar DOM según wait_since desc del servidor (bubble to top)
+            conversations.forEach(conv => {
+                const item = list.querySelector(`.conv-item[data-id="${conv.id}"]`);
+                if (item) list.appendChild(item);
+            });
+
+            // Exclude voice-local-cards: they have no data-id and are managed by the adapter.
+            list.querySelectorAll('.conv-item:not(.voice-local-card)').forEach(el => {
+                if (!conversations.find(c => c.id == el.dataset.id)) el.remove();
+            });
+
+            if (activeConversationId) {
+                document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('selected'));
+                const activeItem = document.querySelector(`.conv-item[data-id="${activeConversationId}"]`);
+                if (activeItem) activeItem.classList.add('selected');
+            }
+
+        });
+}
+
+pollUnread();
+// Pusher es el canal principal — poll cada 2 minutos solo como fallback
+// por si Pusher pierde conexión o hay algún evento que no llegó
+setInterval(pollUnread, 120000);
+
+// Auto-abrir conversación o compose desde query params
+(function() {
+    const params    = new URLSearchParams(window.location.search);
+    const openId    = params.get('open');
+    const compose   = params.get('compose');
+    const leadId    = params.get('lead_id');
+    const leadName  = params.get('lead_name');
+    const to        = params.get('to');
+    const subject   = params.get('subject');
+
+    if (openId) {
+        window.history.replaceState({}, '', '/console');
+        setTimeout(() => openConversation(parseInt(openId)), 600);
+    } else if (compose === '1') {
+        window.history.replaceState({}, '', '/console');
+        setTimeout(() => openCompose({
+            to:       to       || '',
+            subject:  subject  || '',
+            leadId:   leadId   ? parseInt(leadId) : null,
+            leadName: leadName || '',
+        }), 600);
+    }
+})();
+
+setInterval(async () => {
+    await fetch("{{ route('agent.ping') }}", {
+        method: 'POST',
+        headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }
+    });
+}, 30000);
+
+function toggleStatusMenu() {
+    // Global Status Selector Visual Lock: reuses the exact same detection the
+    // backend guard and setStatus()/updateAgentStatus() already use — no
+    // second copy of "is Voice effective work active" logic. Covers click AND
+    // keyboard Enter/Space, since both call this same function.
+    const adapter = window.agentConsoleVoiceAdapter;
+    if (adapter?.hasActiveEffectiveVoiceStatusOverlay?.()) {
+        const info = adapter.effectiveVoiceStatusInfo?.();
+        const message = info?.status === 'wrap_up'
+            ? 'Choose the next status using After Disposition Status.'
+            : 'Status changes are unavailable while handling a voice interaction.';
+        showToast(message, 'error');
+        return;
+    }
+    if (!statusSelectorEnabled) return;
+    const menu = document.getElementById('statusMenu');
+    const indicator = document.getElementById('statusIndicator');
+    const opening = menu.style.display === 'none';
+    menu.style.display = opening ? 'block' : 'none';
+    indicator?.setAttribute('aria-expanded', String(opening));
+
+    if (opening) {
+        window.agentConsoleVoiceAdapter?.handleStatusDropdownOpened();
+    }
+}
+
+function setAgentStatusSelectorEnabled(enabled) {
+    statusSelectorEnabled = Boolean(enabled);
+    const indicator = document.getElementById('statusIndicator');
+    const menu = document.getElementById('statusMenu');
+    if (!indicator) return;
+    indicator.setAttribute(
+        'aria-disabled',
+        String(!statusSelectorEnabled)
+    );
+    indicator.setAttribute('tabindex', statusSelectorEnabled ? '0' : '-1');
+    indicator.style.cursor = statusSelectorEnabled
+        ? 'pointer'
+        : 'not-allowed';
+    indicator.style.opacity = statusSelectorEnabled ? '1' : '.55';
+    if (!statusSelectorEnabled && menu) {
+        menu.style.display = 'none';
+        indicator.setAttribute('aria-expanded', 'false');
+    }
+}
+
+async function setStatus(status, pauseReasonId = null, pauseReasonName = null, pauseReasonColor = null) {
+    if (isDispositionSubmitting) {
+        const menu = document.getElementById('statusMenu');
+        if (menu) menu.style.display = 'none';
+        document.getElementById('statusIndicator')?.setAttribute('aria-expanded', 'false');
+        return null;
+    }
+
+    // Global status lock: while an authoritative effective Voice state (Ringing/
+    // In Call/Wrap-Up) is active, the requested status may only change through the
+    // Voice disposition modal's After Disposition Status field — never through
+    // this selector. No POST, no optimistic mutation, no side effects (including
+    // Ready's mic-preflight/warm-up path below) may run past this point.
+    if (window.agentConsoleVoiceAdapter?.hasActiveEffectiveVoiceStatusOverlay?.()) {
+        showToast('Status changes are unavailable while handling a voice interaction. Choose the next status when submitting the disposition.', 'error');
+        const menu = document.getElementById('statusMenu');
+        if (menu) menu.style.display = 'none';
+        document.getElementById('statusIndicator')?.setAttribute('aria-expanded', 'false');
+        return null;
+    }
+
+    if (status === 'ready' && @json($voiceCapability['eligible'])) {
+        if (typeof window.requestAgentReady !== 'function') {
+            showToast('Voice is still initializing.', 'error');
+            return null;
+        }
+
+        return window.requestAgentReady();
+    }
+
+    window.agentConsoleVoiceAdapter?.handleAgentStatusRequested(status);
+
+    return updateAgentStatus(
+        status,
+        pauseReasonId,
+        pauseReasonName,
+        pauseReasonColor,
+        null
+    );
+}
+
+function agentStatusPresentation(status, pauseReasonName = null, pauseReasonColor = null) {
+    const colors = { ready: '#22c55e', paused: '#f59e0b', offline: '#94a3b8', ringing: '#3b82f6', in_call: '#16a34a', wrap_up: '#f59e0b' };
+    const labels = { ready: 'Ready', offline: 'Offline', ringing: 'Ringing', in_call: 'In Call', wrap_up: 'Wrap-Up' };
+
+    return {
+        dotColor: status === 'paused' && pauseReasonColor
+            ? pauseReasonColor
+            : (colors[status] ?? colors.offline),
+        label: status === 'paused' && pauseReasonName
+            ? pauseReasonName
+            : (labels[status] ?? 'Offline'),
+    };
+}
+
+// Phase 1E-B3: repaints the REQUESTED-status presentation (Ready/Paused/Offline)
+// using currentStatus/currentPauseReasonName/currentPauseReasonColor — none of
+// which are reachable from public/js/agent-console-voice-adapter.js since they are
+// block-scoped `let`s in this inline script. Called by the Voice adapter whenever
+// it clears its effective-status overlay (Ringing/In Call/Wrap-Up) and needs to
+// restore the header to whatever the agent actually requested. startTimer() alone
+// is sufficient — it paints label/dot/timer atomically through the single
+// window.HeaderStatusTimer writer (its internal overlay guard is already false
+// by the time this runs, since the caller clears the overlay flag first).
+window.repaintRequestedAgentStatus = function () {
+    startTimer();
+};
+
+window.applyAgentStatusSnapshotFromServer = function (snapshot) {
+    if (!snapshot?.status) return;
+
+    currentStatus = snapshot.status;
+    currentPauseReasonName = snapshot.pause_reason_name || null;
+    currentPauseReasonColor = snapshot.pause_reason_color || null;
+    currentPauseReasonId = snapshot.pause_reason_id || null;
+    statusSince = snapshot.status_since ? new Date(snapshot.status_since) : new Date();
+    maxMinutes = null;
+
+    startTimer();
+    window.agentConsoleVoiceAdapter?.handleAgentStatusChanged(currentStatus);
+    window.PreviewDialerAgent?.onAgentStatusChanged?.(currentStatus);
+};
+
+window.captureAgentStatusVisualState = function () {
+    const timer = document.getElementById('statusTimer');
+
+    return {
+        currentStatus,
+        statusSince: new Date(statusSince.getTime()),
+        maxMinutes,
+        label: document.getElementById('statusLabel')?.textContent ?? '',
+        dot: document.getElementById('statusDot')?.style.background ?? '',
+        timerText: timer?.textContent ?? '',
+        timerColor: timer?.style.color ?? '',
+    };
+};
+
+window.applyOptimisticAgentReadyVisual = function () {
+    statusCommitPending = true;
+    currentStatus = 'ready';
+    statusSince = new Date();
+    maxMinutes = null;
+    startTimer();
+};
+
+window.applyLocalAgentOfflineVisual = function () {
+    statusCommitPending = false;
+    currentStatus = 'offline';
+    statusSince = new Date();
+    maxMinutes = null;
+    startTimer();
+};
+
+window.rollbackAgentStatusVisual = function (snapshot) {
+    statusCommitPending = false;
+    if (!snapshot) return;
+
+    currentStatus = snapshot.currentStatus;
+    statusSince = new Date(snapshot.statusSince);
+    maxMinutes = snapshot.maxMinutes;
+    startTimer();
+};
+
+window.finishAgentStatusOptimisticCommit = function () {
+    statusCommitPending = false;
+};
+
+window.isAgentStatusCommitPending = function () {
+    return statusCommitPending;
+};
+
+async function updateAgentStatus(status, pauseReasonId = null, pauseReasonName = null, pauseReasonColor = null, browserTabId = null, suppressErrorToast = false) {
+    if (isDispositionSubmitting) {
+        return { ok: false, code: 'disposition_submitting' };
+    }
+
+    // Defense in depth: setStatus() already guards every selector entry point,
+    // but this is the single choke point that actually sends the POST — a stale
+    // in-flight call (e.g. commitAgentReady() queued before an offer arrived)
+    // must not slip through either.
+    if (window.agentConsoleVoiceAdapter?.hasActiveEffectiveVoiceStatusOverlay?.()) {
+        if (!suppressErrorToast) {
+            showToast('Status changes are unavailable while handling a voice interaction. Choose the next status when submitting the disposition.', 'error');
+        }
+        return { ok: false, code: 'voice_status_locked' };
+    }
+
+    document.getElementById('statusMenu').style.display = 'none';
+    document.getElementById('statusIndicator')
+        ?.setAttribute('aria-expanded', 'false');
+
+    const resp = await fetch("{{ route('agent.setStatus') }}", {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+        },
+        body: JSON.stringify({
+            status,
+            pause_reason_id: pauseReasonId,
+            browser_tab_id: browserTabId,
+        })
+    });
+
+    const data = await resp.json();
+    if (!data.ok) {
+        if (status !== 'ready') {
+            window.agentConsoleVoiceAdapter
+                ?.handleAgentStatusChanged(currentStatus);
+        }
+        if (!suppressErrorToast) {
+            showToast(data.message || data.error || 'Error', 'error');
+        }
+        return data;
+    }
+
+    currentStatus = status;
+    currentPauseReasonName = pauseReasonName;
+    currentPauseReasonColor = pauseReasonColor;
+    currentPauseReasonId = pauseReasonId;
+    statusSince = data.since ? new Date(data.since) : new Date();
+    // Pure computation only — no DOM paint here. If a Voice effective overlay
+    // (Ringing/In Call/Wrap-Up) is currently active, startTimer() below is a
+    // deliberate no-op and the header keeps showing the overlay, exactly as
+    // required (e.g. selecting Paused mid-call must not visually leave In Call).
+    const presentation = agentStatusPresentation(
+        status,
+        pauseReasonName,
+        pauseReasonColor
+    );
+
+    maxMinutes = null;
+    @foreach($pauseReasons as $reason)
+    if (pauseReasonId === {{ $reason->id }}) maxMinutes = {{ $reason->max_minutes ?? 'null' }};
+    @endforeach
+
+    startTimer();
+    statusCommitPending = false;
+    window.agentConsoleVoiceAdapter?.handleAgentStatusChanged(status);
+    window.PreviewDialerAgent?.onAgentStatusChanged?.(status);
+    showToast('Status: ' + presentation.label, 'success');
+    return data;
+}
+
+function toggleNotifications() {
+    const dd = document.getElementById('notifDropdown');
+    closeToolsMenu();
+    const waDd = document.getElementById('notifWaDropdown');
+    if (waDd) waDd.style.display = 'none';
+    dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+    if (dd.style.display === 'block') {
+        fetch('/console/unread?channel=email')
+            .then(r => r.json())
+            .then(function(d) { updateNotifDropdown(d.conversations || []); });
+    }
+}
+
+function toggleWaNotifications() {
+    const dd = document.getElementById('notifWaDropdown');
+    const emailDd = document.getElementById('notifDropdown');
+    closeToolsMenu();
+    emailDd.style.display = 'none';
+    dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+    if (dd.style.display === 'block') {
+        fetch('/console/unread?channel=chat')
+            .then(r => r.json())
+            .then(function(d) {
+                const chatConvs = (d.conversations || []).filter(c => _isChatLike(c.channel));
+                updateWaNotifDropdown(chatConvs);
+            });
+    }
+}
+
+function updateWaNotifDropdown(conversations) {
+    const list = document.getElementById('waNotifList');
+    if (!list) return;
+
+    list.innerHTML = '';
+
+    if (!conversations.length) {
+        list.style.cssText = 'padding:24px;text-align:center;color:var(--text-muted);font-size:13px;';
+        list.textContent = 'No new messages';
+        return;
+    }
+
+    list.style.cssText = '';
+
+    conversations.slice(0, 5).forEach(conv => {
+        const waMeta  = _channelMeta(conv.channel);
+        const waIcon  = waMeta.icon;
+        const waBg    = waMeta.bg;
+        const waColor = waMeta.color;
+        const div = document.createElement('div');
+        div.onclick = () => { document.getElementById('notifWaDropdown').style.display = 'none'; openConversation(conv.id); };
+        div.style.cssText = 'padding:12px 16px;border-bottom:1px solid var(--bg-stripe);cursor:pointer;display:flex;gap:12px;align-items:flex-start;';
+        div.onmouseover = () => div.style.background = 'var(--bg-th)';
+        div.onmouseout  = () => div.style.background = '';
+        div.innerHTML = `
+            <div style="width:32px;height:32px;border-radius:8px;background:${waBg};color:${waColor};font-size:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <i class="bi ${waIcon}"></i>
+            </div>
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:600;color:var(--text-strong);">${conv.from_name || conv.from_email || '?'}</div>
+                <div style="font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${conv.subject || conv.external_id || conv.from_email || ''}</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${conv.wait_since}</div>
+            </div>
+            <span style="width:8px;height:8px;border-radius:50%;background:#0F6E56;flex-shrink:0;margin-top:4px;"></span>
+        `;
+        list.appendChild(div);
+    });
+}
+
+function markAllWaRead() {
+    fetch('/console/mark-all-read', {
+        method: 'POST',
+        headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }
+    }).then(function() {
+        document.getElementById('waBadge')?.remove();
+        document.getElementById('waNotifList').innerHTML =
+            '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">No new messages</div>';
+    });
+}
+
+function updateWaBadge(count) {
+    const btn = document.getElementById('notifWaBtn');
+    let badge = document.getElementById('waBadge');
+    if (count > 0) {
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.id = 'waBadge';
+            badge.style.cssText = 'position:absolute;top:-2px;right:-2px;width:16px;height:16px;background:#0F6E56;border-radius:50%;font-size:9px;font-weight:700;color:white;display:flex;align-items:center;justify-content:center;';
+            btn.appendChild(badge);
+        }
+        badge.textContent = count;
+    } else {
+        badge?.remove();
+    }
+}
+
+function filterTab(tab) {
+    document.querySelectorAll('.console-tab').forEach(t => t.classList.remove('active'));
+    document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
+
+    const q = (document.getElementById('searchInbox')?.value || '').toLowerCase().trim();
+    applyConvFilters(tab, q);
+}
+
+function filterInbox(query) {
+    const tab = document.querySelector('.console-tab.active')?.dataset.tab || 'all';
+    applyConvFilters(tab, query.toLowerCase().trim());
+}
+
+function applyConvFilters(tab, q) {
+    let visibleCount = 0;
+
+    document.querySelectorAll('.conv-item').forEach(item => {
+        let tabMatch = false;
+        if (tab === 'all') {
+            tabMatch = true;
+        } else if (tab === 'chat') {
+            tabMatch = item.classList.contains('whatsapp') || item.classList.contains('chat')
+                    || item.classList.contains('facebook') || item.classList.contains('instagram')
+                    || item.classList.contains('sms');
+        } else {
+            tabMatch = item.classList.contains(tab);
+        }
+
+        const searchMatch = !q || item.textContent.toLowerCase().includes(q);
+        const visible = tabMatch && searchMatch;
+        item.style.display = visible ? 'flex' : 'none';
+        if (visible) visibleCount++;
+    });
+
+    const list = document.getElementById('conversationList');
+    if (!list) return;
+
+    list.style.cssText = 'flex:1;overflow-y:auto;min-height:0;';
+
+    let emptyMsg = list.querySelector('.tab-empty-state');
+    if (visibleCount === 0) {
+        if (!emptyMsg) {
+            emptyMsg = document.createElement('div');
+            emptyMsg.className = 'tab-empty-state';
+            emptyMsg.style.cssText = 'padding:40px 20px;text-align:center;color:var(--text-muted);font-size:13px;';
+            emptyMsg.innerHTML = q
+                ? `<i class="bi bi-search" style="font-size:32px;display:block;margin-bottom:8px;opacity:0.4;"></i>No results for "${q}"`
+                : `<i class="bi bi-inbox" style="font-size:32px;display:block;margin-bottom:8px;opacity:0.4;"></i>No ${tab} conversations`;
+            list.appendChild(emptyMsg);
+        }
+    } else {
+        emptyMsg?.remove();
+    }
+}
+
+function openConversation(id) {
+    const adapterForVoiceOpen = window.agentConsoleVoiceAdapter;
+    let isVoiceInteraction = typeof id === 'string'
+        && id.startsWith('voice-local-');
+
+    if (!isVoiceInteraction && adapterForVoiceOpen?.findInteractionByConversationId) {
+        const knownVoice = adapterForVoiceOpen.findInteractionByConversationId(id);
+        if (knownVoice) {
+            id = knownVoice.id;
+            isVoiceInteraction = true;
+        }
+    }
+
+    const localInteractionForOpen = isVoiceInteraction
+        ? adapterForVoiceOpen?.voiceInteractions?.get(id)
+        : null;
+    const voiceOpenKey = isVoiceInteraction
+        ? [
+            localInteractionForOpen?.conversationId ? `conv:${localInteractionForOpen.conversationId}` : null,
+            localInteractionForOpen?.callUuid ? `uuid:${localInteractionForOpen.callUuid}` : null,
+            `id:${id}`,
+        ].filter(Boolean).join('|')
+        : null;
+
+    if (voiceOpenKey && _activeVoiceOpenKey === voiceOpenKey && document.getElementById('voiceCallPanel')) {
+        isLoadingConversation = false;
+        adapterForVoiceOpen?.selectInteraction(id, { shellReady: true });
+        return;
+    }
+
+    if (voiceOpenKey) {
+        _activeVoiceOpenKey = voiceOpenKey;
+    } else {
+        _activeVoiceOpenKey = null;
+    }
+
+    // Invalidate any in-flight voice fetch from a previous openConversation call.
+    // Without this, if the user clicks Voice A then Voice B quickly, A's response
+    // can overwrite the B render.
+    _voiceOpenToken++;
+    window.agentConsoleVoiceAdapter?.deactivateInteraction();
+    activeConversationId = isVoiceInteraction ? null : id;
+    _knownMsgIds = new Set(); // reset baseline hasta que renderConversation la popule
+
+    // Restore per-conversation lead panel state before showing skeleton.
+    // Each conversation remembers its own open/closed state.
+    // New conversations (no stored state) default to open.
+    // Voice restores its own state inside selectInteraction().
+    if (!isVoiceInteraction) {
+        _restoreLeadPanelFor(`conv:${id}`);
+    }
+
+    document.querySelectorAll('.conv-item').forEach(i => i.classList.remove('selected'));
+    const openedItem = isVoiceInteraction
+        ? document.querySelector(`.voice-local-card[data-voice-id="${id}"]`)
+        : document.querySelector(`.conv-item[data-id="${id}"]`);
+    if (openedItem) {
+        openedItem.classList.add('selected');
+        openedItem.querySelector('.unread-dot')?.remove();
+        openedItem.dataset.hasUnread = 'false';
+    }
+    document.getElementById('notifDropdown').style.display = 'none';
+
+    isLoadingConversation = true;
+    document.getElementById('messagePanel').style.cssText = 'display:flex;flex-direction:column;background:var(--bg-page);overflow:hidden;position:relative;min-height:0;flex:1;min-width:0;';
+    document.getElementById('messagePanel').innerHTML = `
+        <div style="padding:0 16px;height:38px;border-bottom:1px solid var(--border);background:var(--bg-card);display:flex;align-items:center;gap:10px;flex-shrink:0;">
+            <div class="sk" style="height:13px;width:180px;"></div>
+            <div style="color:var(--text-tertiary);">·</div>
+            <div class="sk" style="height:11px;width:100px;"></div>
+            <div style="flex:1;"></div>
+            <div class="sk" style="height:24px;width:24px;border-radius:4px;"></div>
+            <div class="sk" style="height:24px;width:24px;border-radius:4px;"></div>
+            <div class="sk" style="height:24px;width:24px;border-radius:4px;"></div>
+        </div>
+        <div style="height:54px;border-bottom:1px solid var(--border);background:var(--bg-card);flex-shrink:0;display:flex;align-items:flex-end;gap:2px;padding:0 8px;">
+            <div class="sk" style="height:36px;width:120px;border-radius:4px 4px 0 0;"></div>
+            <div class="sk" style="height:32px;width:86px;border-radius:4px 4px 0 0;opacity:.6;"></div>
+        </div>
+        <div style="flex:1;overflow:hidden;padding:20px;display:flex;flex-direction:column;gap:14px;">
+            <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+                <div style="padding:10px 14px;display:flex;align-items:center;gap:10px;background:var(--bg-card);">
+                    <div class="sk" style="width:32px;height:32px;border-radius:50%;flex-shrink:0;"></div>
+                    <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
+                        <div class="sk" style="height:11px;width:55%;"></div>
+                        <div class="sk" style="height:9px;width:35%;"></div>
+                    </div>
+                    <div class="sk" style="height:10px;width:70px;flex-shrink:0;"></div>
+                </div>
+                <div style="padding:14px 16px;background:var(--bg-page);display:flex;flex-direction:column;gap:8px;">
+                    <div class="sk" style="height:11px;width:90%;"></div>
+                    <div class="sk" style="height:11px;width:75%;"></div>
+                    <div class="sk" style="height:11px;width:82%;"></div>
+                    <div class="sk" style="height:11px;width:60%;"></div>
+                </div>
+            </div>
+            <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+                <div style="padding:10px 14px;display:flex;align-items:center;gap:10px;background:var(--bg-card);">
+                    <div class="sk" style="width:32px;height:32px;border-radius:50%;flex-shrink:0;"></div>
+                    <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
+                        <div class="sk" style="height:11px;width:42%;"></div>
+                        <div class="sk" style="height:9px;width:28%;"></div>
+                    </div>
+                    <div class="sk" style="height:10px;width:70px;flex-shrink:0;"></div>
+                </div>
+            </div>
+            <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+                <div style="padding:10px 14px;display:flex;align-items:center;gap:10px;background:var(--bg-card);">
+                    <div class="sk" style="width:32px;height:32px;border-radius:50%;flex-shrink:0;"></div>
+                    <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
+                        <div class="sk" style="height:11px;width:48%;"></div>
+                        <div class="sk" style="height:9px;width:30%;"></div>
+                    </div>
+                    <div class="sk" style="height:10px;width:70px;flex-shrink:0;"></div>
+                </div>
+            </div>
+        </div>
+        <div style="border-top:1px solid var(--border);background:var(--bg-card);flex-shrink:0;padding:12px 16px;display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div class="sk" style="height:11px;width:120px;"></div>
+                <div style="display:flex;gap:6px;">
+                    <div class="sk" style="height:30px;width:80px;border-radius:6px;"></div>
+                    <div class="sk" style="height:30px;width:80px;border-radius:6px;"></div>
+                </div>
+            </div>
+            <div class="sk" style="height:120px;width:100%;border-radius:6px;"></div>
+            <div style="display:flex;justify-content:space-between;">
+                <div style="display:flex;gap:8px;">
+                    <div class="sk" style="height:32px;width:100px;border-radius:6px;"></div>
+                    <div class="sk" style="height:32px;width:80px;border-radius:6px;"></div>
+                    <div class="sk" style="height:32px;width:80px;border-radius:6px;"></div>
+                </div>
+                <div class="sk" style="height:32px;width:100px;border-radius:6px;"></div>
+            </div>
+        </div>
+    `;
+
+    document.getElementById('leadPanel').innerHTML = `
+        <div style="padding:14px;display:flex;flex-direction:column;gap:0;">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+                <div class="sk" style="width:42px;height:42px;border-radius:50%;flex-shrink:0;"></div>
+                <div style="flex:1;display:flex;flex-direction:column;gap:7px;">
+                    <div class="sk" style="height:13px;width:58%;"></div>
+                    <div class="sk" style="height:10px;width:36%;"></div>
+                </div>
+            </div>
+            ${['42%','65%','78%','52%','70%','38%','44%','32%'].map(w => `
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border-light);">
+                <div class="sk" style="width:68px;height:9px;flex-shrink:0;"></div>
+                <div class="sk" style="height:9px;width:${w};"></div>
+            </div>`).join('')}
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border-light);">
+                <div class="sk" style="width:68px;height:9px;flex-shrink:0;"></div>
+                <div class="sk" style="height:20px;width:72px;border-radius:20px;"></div>
+            </div>
+            <div class="sk" style="height:10px;width:36%;margin:12px 0 14px;"></div>
+            <div style="display:flex;gap:20px;border-bottom:1px solid var(--border);padding-bottom:9px;margin-bottom:10px;">
+                <div class="sk" style="height:12px;width:48px;"></div>
+                <div class="sk" style="height:12px;width:38px;"></div>
+            </div>
+            ${['68%','52%','62%','44%','56%'].map(w => `
+            <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border-light);">
+                <div class="sk" style="width:28px;height:28px;border-radius:50%;flex-shrink:0;"></div>
+                <div style="flex:1;display:flex;flex-direction:column;gap:5px;">
+                    <div class="sk" style="height:11px;width:${w};"></div>
+                    <div class="sk" style="height:9px;width:42%;"></div>
+                </div>
+                <div class="sk" style="height:9px;width:28px;"></div>
+            </div>`).join('')}
+        </div>
+    `;
+
+    if (isVoiceInteraction) {
+        const adapter = window.agentConsoleVoiceAdapter;
+        const localInteraction = adapter?.voiceInteractions?.get(id);
+        const persistedConvId  = localInteraction?.conversationId;
+
+        if (persistedConvId) {
+            // Voice-local with a persisted conversationId.
+            //
+            // CRITICAL: Do NOT wait for the backend fetch before showing the voice panel.
+            // The skeleton replaces messagePanel immediately (set above), which removes
+            // the Answer/Reject buttons. Waiting 5-6 s for the server response makes
+            // inbound calls impossible to answer during that window.
+            //
+            // Strategy:
+            //   1. Restore the voice panel from local state immediately (same as short-circuit).
+            //   2. Fire the backend fetch in the background for data enrichment only
+            //      (dispositions, timeline, lead, script).  renderVoiceConversationFromBackend()
+            //      merges the result into the already-visible panel when ready.
+            //
+            // The SIP session is never blocked by a server round-trip.
+            const voiceToken = _voiceOpenToken;
+            // Mark interaction as fetch-pending so timeline shows skeleton rows
+            if (localInteraction) localInteraction.fetchPending = true;
+            window.requestAnimationFrame(() => {
+                if (voiceToken !== _voiceOpenToken) return;
+                isLoadingConversation = false;
+                adapter?.selectInteraction(id, { shellReady: true });
+            });
+            // Background enrichment fetch — updates dispositions/timeline/lead when done.
+            // Error is intentionally swallowed: the panel is usable even if this fails.
+            const fetchKey = Number(persistedConvId);
+            const fetchPromise = _voiceConversationFetches.get(fetchKey)
+                || fetch(`/console/conversation/${persistedConvId}`)
+                    .then(r => r.json())
+                    .finally(() => _voiceConversationFetches.delete(fetchKey));
+            _voiceConversationFetches.set(fetchKey, fetchPromise);
+            fetchPromise
+                .then(data => {
+                    if (voiceToken !== _voiceOpenToken) return;
+                    if (localInteraction) localInteraction.fetchPending = false;
+                    adapter?.renderVoiceConversationFromBackend?.(data);
+                })
+                .catch(() => {
+                    if (localInteraction) localInteraction.fetchPending = false;
+                });
+        } else {
+            // No persisted ID yet (live call, persist not yet complete).
+            // Use direct adapter render — disposition button is hidden anyway
+            // because the call is not yet terminal.
+            // Do NOT force openLeadPanel() — respect the user's current preference.
+            // The panel is already open or closed per leadPanelOpen state.
+            window.requestAnimationFrame(() => {
+                isLoadingConversation = false;
+                adapter?.selectInteraction(id, { shellReady: true });
+            });
+        }
+        return;
+    }
+
+    fetch(`/console/conversation/${id}/read`, {
+        method: 'PATCH',
+        headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }
+    }).then(() => pollUnread());
+
+    fetch(`/console/conversation/${id}`)
+        .then(r => r.json())
+        .then(data => {
+            if (activeConversationId !== id) return;
+            renderConversation(data);
+        });
+}
+
+// mountIframes eliminado — HTML renderizado directo en div
+
+// Prioridad: nombre del Lead > from_name > from_email (nunca el participant_id
+// opaco de Zernio en FB/IG) > subject (si no repite lo anterior) > external_id.
+function _resolveHeaderContact(conv, lead) {
+    const leadName = lead ? [lead.first_name, lead.last_name].filter(Boolean).join(' ').trim() : '';
+    if (leadName) return leadName;
+    if (conv.from_name) return conv.from_name;
+
+    const isOpaqueSocialId = conv.channel === 'facebook' || conv.channel === 'instagram';
+    if (conv.from_email && !isOpaqueSocialId) return conv.from_email;
+
+    if (conv.subject && conv.subject !== conv.from_name && conv.subject !== conv.from_email) return conv.subject;
+    if (conv.external_id) return conv.external_id;
+    return '';
+}
+
+// "Ventas MX (526621229520)" — si nombre y dirección son iguales o falta uno
+// de los dos, se muestra una sola vez.
+function _formatHeaderDestination(name, address) {
+    name = (name || '').trim();
+    address = (address || '').trim();
+    if (name && address && name !== address) return `${name} (${address})`;
+    return name || address || '';
+}
+
+// "Channel: SMS · Source: ITSAAR MX · Contact: 6622293306 · Campaign: ... · Queue: ..."
+// — solo segmentos con dato real; nunca "Label: " huérfano ni "null"/"undefined".
+// Source prefiere el nombre del canal (entry_point_name) y cae a la dirección
+// (entry_point_address) solo si no hay nombre — un solo identificador, sin
+// combinarlos (a diferencia del formato anterior "Nombre (dirección)").
+function _buildConversationHeaderLine(conv, lead) {
+    const contact = _resolveHeaderContact(conv, lead);
+    const channelLabel = HEADER_CHANNEL_LABELS[conv.channel] || conv.channel || '';
+    const source = conv.entry_point_name || conv.entry_point_address || '';
+
+    return [
+        channelLabel ? `Channel: ${channelLabel}` : '',
+        source ? `Source: ${source}` : '',
+        contact ? `Contact: ${contact}` : '',
+        conv.campaign_name ? `Campaign: ${conv.campaign_name}` : '',
+        conv.queue_name ? `Queue: ${conv.queue_name}` : '',
+    ].filter(Boolean).join(' · ');
+}
+
+function getCallablePhoneNumber(conv, lead) {
+    if ((conv?.channel || '').toLowerCase() !== 'sms') return '';
+
+    const candidates = [
+        lead?.phone,
+        lead?.phone_2,
+        conv?.contact_phone,
+        conv?.remote_phone,
+        conv?.from_email,
+        conv?.last_from_email,
+        conv?.last_outbound_to,
+    ];
+
+    for (const value of candidates) {
+        const phone = String(value || '').trim();
+        const digits = phone.replace(/\D/g, '');
+        if (digits.length >= 7 && digits.length <= 15) {
+            return phone.replace(/[^\d*#+()\-\s]/g, '').slice(0, 24);
+        }
+    }
+
+    return '';
+}
+
+function openConversationContactVoiceDialer(phoneNumber) {
+    const phone = String(phoneNumber || '').replace(/[^\d*#+()\-\s]/g, '').slice(0, 24);
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length < 7 || digits.length > 15) return;
+
+    const input = document.getElementById('voiceQaPhone');
+    if (input) {
+        input.value = phone;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    window.agentConsoleVoiceAdapter?.openDialer?.();
+}
+
+function renderConversation(data) {
+    const conv = data.conversation;
+
+    // ── Voice channel: delegate to adapter for rendering ─────────────────────
+    // The adapter already handles its own renderInteraction() which uses the
+    // shared renderConversationTabs() / switchConvTab() / _renderScriptContent().
+    // This path handles refresh recovery (persisted conversations on reload).
+    if (conv.channel === 'voice') {
+        if (window.agentConsoleVoiceAdapter?.renderVoiceConversationFromBackend) {
+            window.agentConsoleVoiceAdapter.renderVoiceConversationFromBackend(data);
+        }
+        isLoadingConversation = false;
+        return;
+    }
+
+    const isWaChannel = _isChatLike(conv.channel);
+    conv.contact_email = data.contact_email ?? (isWaChannel ? null : conv.from_email);
+    // FB/IG: from_email es el participant_id de Zernio, no un teléfono — no pre-llenar
+    conv.contact_phone = (conv.channel === 'whatsapp' || conv.channel === 'chat' || conv.channel === 'sms') ? (conv.from_email || '') : null;
+    const messages = data.messages;
+    const lead     = data.lead;
+
+    // Store script data from this conversation; reset on each new conversation
+    _currentScriptData = data.script || null;
+
+    // Baseline de IDs conocidos — el poll solo sonará para mensajes posteriores a esto
+    _knownMsgIds = new Set(messages.map(m => Number(m.id)));
+    console.log(`[conv] baseline set: ${_knownMsgIds.size} msg IDs for conv #${conv.id}`);
+    currentDispositions = data.dispositions || [];
+
+    const replyTarget = conv.last_direction === 'outbound'
+        ? (conv.last_outbound_to_name || conv.last_outbound_to)
+        : (conv.last_from_name || conv.last_from_email || conv.from_email);
+
+    const isWaChat = _isChatLike(conv.channel);
+
+    const headerLine = _buildConversationHeaderLine(conv, lead);
+    const contextHeaderHtml = _buildConversationContextHeader(conv, lead);
+    const callablePhone = getCallablePhoneNumber(conv, lead);
+    const callButtonHtml = callablePhone
+        ? `<button onclick='openConversationContactVoiceDialer(${JSON.stringify(callablePhone)})' title="Call contact"
+                    style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-th);color:var(--text-muted);cursor:pointer;font-size:12px;display:flex;align-items:center;gap:4px;line-height:1;">
+                    <i class="bi bi-telephone"></i>
+                </button>`
+        : `<button title="${conv.channel === 'sms' ? 'No callable SMS phone number' : 'Voice calling — coming soon'}"
+                    style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-th);color:var(--text-muted);cursor:default;font-size:12px;display:flex;align-items:center;gap:4px;line-height:1;opacity:0.4;">
+                    <i class="bi bi-telephone"></i>
+                </button>`;
+
+    // Renderizar contenido real pero invisible hasta que todos los iframes carguen
+    const panelHtml = `
+    <div class="conversation-context-header" title="${_escHtml(headerLine)}">
+            ${contextHeaderHtml}
+            <div class="conversation-context-actions">
+                <button id="btnToggleLead" onclick="toggleLeadPanel()" title="Lead info"
+                    style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-th);color:var(--text-muted);cursor:pointer;font-size:12px;display:flex;align-items:center;gap:4px;line-height:1;">
+                    <i class="bi bi-person-lines-fill"></i>
+                </button>
+                ${callButtonHtml}
+                <button onclick="openTransferModal(${conv.id})" title="Transfer conversation"
+                    style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-th);color:var(--text-muted);cursor:pointer;font-size:12px;display:flex;align-items:center;gap:4px;line-height:1;">
+                    <i class="bi bi-arrow-left-right"></i>
+                </button>
+            </div>
+        </div>
+
+        {{-- ── TABS: Conversation | Script ─────────────────────────────────── --}}
+        ${renderConversationTabs()}
+
+        {{-- meta hidden element for URL params --}}
+        <span id="_scriptMeta" style="display:none;" data-meta='${JSON.stringify(data.meta || {})}'></span>
+
+        {{-- Conversation content area — always rendered, toggled via display --}}
+        <div id="convContentArea" style="flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;">
+        ${isWaChat ? `
+        <div id="waChatArea" style="flex:1;overflow-y:auto;background:var(--bg-secondary);padding:16px;display:flex;flex-direction:column;gap:8px;min-height:0;">
+            ${renderWaMessages(messages)}
+        </div>
+        ` : `
+        <div style="flex:1;overflow-y:auto;padding:20px;min-height:0;" id="messageThread">
+            ${messages.map(m => renderMessage(m)).join('')}
+        </div>
+        `}
+        ${isWaChat ? `
+        <div style="border-top:1px solid var(--border);background:var(--bg-card);flex-shrink:0;">
+            <div style="padding:4px 16px 2px;text-align:right;">
+                <span id="waCharCount" style="font-size:10px;color:var(--text-muted);">0 / 4096</span>
+            </div>
+            <div style="padding:8px 16px;">
+                <textarea id="waReplyBody"
+                    placeholder="Escribe un mensaje..."
+                    style="width:100%;border:1px solid var(--border);border-radius:var(--radius);padding:8px 14px;font-size:13px;resize:none;height:60px;font-family:inherit;background:var(--bg-input);color:var(--text-strong);box-sizing:border-box;outline:none;transition:border-color .15s,box-shadow .15s;"
+                    oninput="document.getElementById('waCharCount').textContent=this.value.length+' / 4096'"
+                    onfocus="this.style.borderColor='var(--primary)';this.style.boxShadow='0 0 0 3px rgba(79,70,229,.1)'"
+                    onblur="this.style.borderColor='var(--border)';this.style.boxShadow='none'"></textarea>
+            </div>
+            <div style="padding:8px 16px 12px;display:flex;align-items:center;justify-content:space-between;">
+                <div style="display:flex;gap:8px;">
+                    <button id="waSendBtn" class="btn btn-primary btn-lg" onclick="sendWhatsappReply('${conv.channel}')">
+                        <i class="bi ${_sendIcon(conv.channel)}"></i> Send
+                    </button>
+                    <button id="emojiPickerBtn" class="btn btn-secondary btn-lg" onclick="toggleEmojiPicker(event)" title="Emoji">
+                        <i class="bi bi-emoji-smile"></i>
+                    </button>
+                </div>
+                <button class="btn btn-secondary btn-lg" onclick="setDisposition(${conv.id}, '${conv.channel}')">
+                    <i class="bi bi-tag"></i> Disposition
+                </button>
+            </div>
+        </div>
+        ` : `
+        <div style="border-top:1px solid var(--border);background:var(--bg-card);flex-shrink:0;">
+           <div style="padding:12px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);min-height:50px;">
+                <div>
+                    <span id="replyMode" style="font-size:13px;color:var(--text-muted);">↩ Reply to ${replyTarget}</span>
+                    ${(conv.cc_emails || conv.last_to_emails) ? `
+                        <div id="replyCcPreview" style="font-size:11px;color:var(--text-muted);margin-top:2px;display:none;">
+                            <i class="bi bi-people" style="margin-right:4px;"></i>
+                            ${[...new Set([...(conv.cc_emails?.split(',') || []), ...(conv.last_to_emails?.split(',') || [])].map(e => e.trim()).filter(Boolean))].join(', ')}
+                        </div>
+                    ` : ''}
+                </div>
+                <div style="display:flex;gap:6px;">
+                        <button id="btn-reply" class="btn btn-primary btn-sm reply-mode-btn"
+                            onclick="setReplyMode('reply', ${conv.id}, '${replyTarget}', '')">
+                            <i class="bi bi-reply"></i> Reply
+                        </button>
+                    ${(conv.cc_emails || conv.has_multiple_recipients) ? `
+                        <button id="btn-replyall" class="btn btn-secondary btn-sm reply-mode-btn"
+                            onclick="setReplyMode('replyall', ${conv.id}, '${replyTarget}', '${[conv.cc_emails, conv.last_to_emails].filter(Boolean).join(', ')}')">
+                            <i class="bi bi-reply-all"></i> Reply All
+                        </button>
+                    ` : ''}
+                    <button id="btn-forward" class="btn btn-secondary btn-sm reply-mode-btn" onclick="setReplyMode('forward', ${conv.id}, '', '')">
+                        <i class="bi bi-forward"></i> Forward</button>
+                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('attachmentInput').click()">
+                        <i class="bi bi-paperclip"></i>
+                    </button>
+                </div>
+            </div>
+            <div id="attachmentList" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+            <input type="file" id="attachmentInput" multiple style="display:none;" onchange="handleAttachments(this.files)">
+            <div id="replyBody" style="min-height:150px;background:white;"></div>
+            <div style="padding:5px 16px;display:flex;align-items:center;justify-content:space-between;">
+                <div style="display:flex;gap:8px;">
+                    <button class="btn btn-primary btn-lg" onclick="sendReply(${conv.id})">
+                        <i class="bi bi-send"></i> Send Reply
+                    </button>
+                    <button class="btn btn-secondary btn-lg"><i class="bi bi-calendar"></i> Schedule</button>
+                </div>
+                <button class="btn btn-secondary btn-lg" onclick="setDisposition(${conv.id}, '${conv.channel}')">
+                    <i class="bi bi-tag"></i> Disposition
+                </button>
+            </div>
+        </div>
+        `}
+        </div>{{-- /convContentArea --}}
+
+        {{-- Script content area — hidden by default, shown when Script tab is active --}}
+        <div id="scriptContentArea" style="flex:1;display:none;flex-direction:column;min-height:0;overflow:hidden;background:var(--bg-page);">
+            ${_renderScriptContent(_currentScriptData, data.script_source)}
+        </div>
+    `;
+
+    // Swap directo — el skeleton cubre el tiempo del fetch
+    const panel = document.getElementById('messagePanel');
+    panel.style.cssText = 'display:flex;flex-direction:column;background:var(--bg-page);overflow:hidden;position:relative;min-height:0;flex:1;min-width:0;';
+    panel.innerHTML = panelHtml;
+
+    if (isWaChat) {
+        const chatArea = document.getElementById('waChatArea');
+        if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
+    } else {
+        setTimeout(() => {
+            if (window.joditEditor) {
+                window.joditEditor.destruct();
+                window.joditEditor = null;
+            }
+            if (!document.getElementById('replyBody')) return;
+            window.joditEditor = Jodit.make('#replyBody', {
+                height: 200,
+                toolbarButtonSize: 'small',
+                language: 'en',
+                toolbarAdaptive: false,
+                buttons: 'bold,italic,underline,strikethrough,|,ul,ol,|,font,fontsize,brush,|,image,table,link,|,align,|,undo,redo,|,eraser,fullsize',
+                uploader: {
+                    insertImageAsBase64URI: true
+                },
+                placeholder: 'Write your reply...',
+                statusbar: false,
+                showCharsCounter: false,
+                showWordsCounter: false,
+                showXPathInStatusbar: false,
+                addNewLine: false,
+                maxHeight: 400,
+                allowResizeY: true,
+                allowResizeX: false,
+            });
+            window.joditEditor.value = agentSignature
+                ? `<p><br></p><p>--</p>${agentSignature}`
+                : '';
+        }, 100);
+    }
+
+    document.querySelectorAll('#messageThread [data-msg-id]').forEach((el, i) => {
+        if (i > 0) {
+            const msgId = `msg-body-${el.dataset.msgId}`;
+            const body = document.getElementById(msgId);
+            const icon = document.getElementById(`icon-${msgId}`);
+            if (body) {
+                body.style.overflow = 'hidden';
+                body.style.height = '0';
+                body.dataset.collapsed = 'true';
+            }
+            if (icon) icon.style.transform = 'rotate(-90deg)';
+        }
+    });
+
+
+
+    if (data.lead) {
+        window.LeadPanel.render(conv, data.lead);
+    } else if (data.dynamic_lead_row && window.LeadPanel.renderDynamicLeadRow) {
+        window.LeadPanel.renderDynamicLeadRow(conv, {
+            dynamic_lead_row: data.dynamic_lead_row,
+            lead_list: data.lead_list,
+            dialer_campaign: data.dialer_campaign,
+            campaign: data.campaign
+        });
+    } else if (data.suggested_leads && data.suggested_leads.length > 0) {
+        window.LeadPanel.renderSuggested(conv, data.suggested_leads);
+    } else {
+        window.LeadPanel.renderEmpty(conv);
+    }
+
+    // Do NOT call openLeadPanel() here — it would force the panel open on every
+    // conversation change, ignoring user preference. The panel starts open (leadPanelOpen=true)
+    // and the user can close/open it; that choice persists across all channels.
+    isLoadingConversation = false;
+
+    if (activeConversationId) {
+        document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('selected'));
+        const activeItem = document.querySelector(`.conv-item[data-id="${activeConversationId}"]`);
+        if (activeItem) activeItem.classList.add('selected');
+    }
+}
+
+function field(label, value) {
+    return `<div>
+        <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">${label}</div>
+        <div style="font-size:13px;font-weight:500;color:var(--text-strong);margin-top:2px;">${value || '—'}</div>
+    </div>`;
+}
+
+function toggleMessage(msgId) {
+    const body = document.getElementById(msgId);
+    const icon = document.getElementById(`icon-${msgId}`);
+    const isCollapsed = body.dataset.collapsed === 'true';
+    if (isCollapsed) {
+        body.style.height = '';
+        body.style.overflow = '';
+        body.dataset.collapsed = 'false';
+        icon.style.transform = 'rotate(0deg)';
+    } else {
+        body.style.height = '0';
+        body.style.overflow = 'hidden';
+        body.dataset.collapsed = 'true';
+        icon.style.transform = 'rotate(-90deg)';
+    }
+}
+
+function _waInitial(m) {
+    const isOut = m.direction === 'outbound';
+    if (isOut) return (typeof agentInitial !== 'undefined' ? agentInitial : 'A').toUpperCase();
+    const name = m.from_name;
+    if (name && !/^\+?\d/.test(name.trim())) return name.trim()[0].toUpperCase();
+    return '#';
+}
+
+// sent_at_day/sent_at_date vienen del backend (MessageTimePresenter), ya
+// calculados en la timezone del TENANT — nunca se deriva el día/hora "oficial"
+// con Date()/getFullYear()/getMonth()/getDate()/toLocaleDateString() en el
+// navegador, porque eso usa la timezone local del agente, no la del tenant.
+// Un solo campo (sent_at_day) compartido entre el render por lotes (carga
+// inicial/reload) y el append en tiempo real evita que ambos calculen
+// "cambió el día" de forma distinta.
+function renderWaMessages(messages) {
+    const ordered = [...messages].reverse(); // mensajes desc del server → asc para burbujas
+    let lastDay = '';
+    return ordered.map(function(m) {
+        let separator = '';
+        if (m.sent_at_day && m.sent_at_day !== lastDay) {
+            separator = `<div data-date="${m.sent_at_day}" style="text-align:center;font-size:11px;color:var(--text-muted);margin:8px 0;display:flex;align-items:center;gap:8px;"><div style="flex:1;height:0.5px;background:var(--border);"></div>${m.sent_at_date}<div style="flex:1;height:0.5px;background:var(--border);"></div></div>`;
+            lastDay = m.sent_at_day;
+        }
+
+        return separator + renderWaMessage(m);
+    }).join('');
+}
+
+function _waMediaContent(m, isOut) {
+    const url  = m.media_url  || '';
+    const name = m.media_filename || m.media_type || 'file';
+    const br   = isOut ? 'border-bottom-right-radius:4px;' : 'border-bottom-left-radius:4px;';
+    const bg   = isOut ? '#E1F5EE' : 'var(--bg-card)';
+    const fg   = isOut ? '#085041' : 'var(--text-strong)';
+
+    if (!url) {
+        // Media aún no disponible — muestra placeholder
+        const body = m.body_text ? m.body_text.replace(/\n/g, '<br>') : '[media]';
+        return { html: body, style: `padding:10px 14px;border-radius:18px;${br}background:${bg};color:${fg};font-size:13px;line-height:1.5;` };
+    }
+
+    switch (m.media_type) {
+        case 'image':
+            return {
+                html:  `<img src="${url}" style="max-width:240px;max-height:300px;border-radius:12px;display:block;cursor:zoom-in;" loading="lazy" onclick="window.open('${url}','_blank')" onerror="this.parentElement.innerHTML='<span style=\\'font-size:12px;color:var(--text-muted)\\'>Image unavailable</span>'">`,
+                style: 'padding:4px;background:transparent;border-radius:12px;overflow:hidden;'
+            };
+        case 'sticker':
+            return {
+                html:  `<img src="${url}" style="width:110px;height:110px;object-fit:contain;" loading="lazy" onerror="this.style.display='none'">`,
+                style: 'padding:0;background:transparent;'
+            };
+        case 'audio':
+            return {
+                html:  `<audio controls style="max-width:220px;height:36px;border-radius:20px;display:block;"><source src="${url}"><a href="${url}" target="_blank" style="font-size:12px;color:${fg};">🎵 Audio</a></audio>`,
+                style: `padding:8px 10px;border-radius:18px;${br}background:${bg};`
+            };
+        case 'video':
+            return {
+                html:  `<video controls style="max-width:240px;border-radius:12px;display:block;" onerror="this.style.display='none'"><source src="${url}"></video>`,
+                style: 'padding:4px;background:transparent;border-radius:12px;overflow:hidden;'
+            };
+        case 'document':
+            return {
+                html:  `<a href="${url}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;text-decoration:none;color:${fg};font-size:13px;"><i class="bi bi-file-earmark" style="font-size:22px;flex-shrink:0;"></i><span style="word-break:break-all;">${name}</span></a>`,
+                style: `padding:10px 14px;border-radius:18px;${br}background:${bg};`
+            };
+        default:
+            return {
+                html:  m.body_text || '[media]',
+                style: `padding:10px 14px;border-radius:18px;${br}background:${bg};color:${fg};font-size:13px;line-height:1.5;`
+            };
+    }
+}
+
+function _escHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// Burbuja unificada para mensajes que llegan desde un anuncio de Click-to-WhatsApp (FB/IG):
+// imagen + título + descripción del anuncio (clickeable como bloque) + divider + mensaje del cliente
+function _waReferralBubble(m, timeStr) {
+    const r = m.referral;
+    const headline = r.headline ? _escHtml(r.headline.trim()).replace(/\n/g, '<br>') : '';
+    const body     = r.body     ? _escHtml(r.body.trim()).replace(/\n/g, '<br>')     : '';
+    const msgText  = m.body_text ? _escHtml(m.body_text).replace(/\n/g, '<br>') : '';
+
+    const img = r.image_url
+        ? `<img src="${_escHtml(r.image_url)}" style="width:100%;max-height:300px;object-fit:contain;background:#12122a;display:block;" loading="lazy" onerror="this.style.display='none'">`
+        : '';
+
+    const adText = (headline || body)
+        ? `<div style="padding:8px 12px;">${headline ? `<div style="font-weight:600;color:var(--text-strong);">${headline}</div>` : ''}${body ? `<div style="color:var(--text-muted);${headline ? 'margin-top:4px;' : ''}">${body}</div>` : ''}</div>`
+        : '';
+
+    const adInner = img + adText;
+    const adBlock = adInner
+        ? (r.source_url
+            ? `<a href="${_escHtml(r.source_url)}" target="_blank" rel="noopener" style="display:block;text-decoration:none;color:inherit;">${adInner}</a>`
+            : `<div>${adInner}</div>`)
+        : '';
+
+    const divider = adBlock ? `<div style="margin:0 12px;border-top:1px solid var(--border);"></div>` : '';
+
+    return `<div style="border-radius:2px 12px 12px 12px;background:var(--bg-card);overflow:hidden;font-size:13px;line-height:1.5;">${adBlock}${divider}<div style="padding:8px 12px 4px;color:var(--text-strong);">${msgText}</div><div style="padding:0 12px 8px;text-align:right;font-size:10px;color:var(--text-muted);">${timeStr}</div></div>`;
+}
+
+function renderWaMessage(m) {
+    // sent_at_time viene ya formateado por el backend en la timezone del
+    // tenant (MessageTimePresenter) — nunca se deriva con Date()/toLocaleTimeString()
+    // en el navegador, que usaría la timezone local del agente.
+    const timeStr = m.sent_at_time || '';
+    const isOut   = m.direction === 'outbound';
+    const initial = _waInitial(m);
+
+    // Mensaje originado por un anuncio de Click-to-WhatsApp — burbuja unificada con preview del anuncio
+    if (!isOut && m.referral) {
+        const bubble = _waReferralBubble(m, timeStr);
+        return `<div data-wa-msg-id="${m.id}" data-message-id="${m.id}" style="display:flex;gap:8px;align-items:flex-end;max-width:75%;align-self:flex-start;"><div style="width:28px;height:28px;border-radius:50%;background:#E1F5EE;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;flex-shrink:0;">${initial}</div><div style="max-width:280px;">${bubble}</div></div>`;
+    }
+
+    let bubbleHtml, bubbleStyle;
+
+    if (m.media_type) {
+        const media  = _waMediaContent(m, isOut);
+        bubbleHtml   = media.html;
+        bubbleStyle  = media.style;
+    } else {
+        const body  = m.body_text ? m.body_text.replace(/\n/g, '<br>') : (m.body_html ? m.body_html.replace(/<[^>]*>/g, '') : '');
+        bubbleHtml  = body;
+        bubbleStyle = isOut
+            ? 'padding:10px 14px;border-radius:18px;border-bottom-right-radius:4px;background:#E1F5EE;color:#085041;font-size:13px;line-height:1.5;'
+            : 'padding:10px 14px;border-radius:18px;border-bottom-left-radius:4px;background:var(--bg-card);color:var(--text-strong);font-size:13px;line-height:1.5;';
+    }
+
+    if (isOut) {
+        return `<div data-wa-msg-id="${m.id}" data-message-id="${m.id}" style="display:flex;gap:8px;align-items:flex-end;max-width:75%;align-self:flex-end;flex-direction:row-reverse;"><div style="width:28px;height:28px;border-radius:50%;background:#E6F1FB;color:#185FA5;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;flex-shrink:0;">${initial}</div><div><div style="${bubbleStyle}">${bubbleHtml}</div><div style="font-size:10px;color:var(--text-muted);margin-top:3px;text-align:right;">${timeStr}</div></div></div>`;
+    } else {
+        return `<div data-wa-msg-id="${m.id}" data-message-id="${m.id}" style="display:flex;gap:8px;align-items:flex-end;max-width:75%;align-self:flex-start;"><div style="width:28px;height:28px;border-radius:50%;background:#E1F5EE;color:#085041;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;flex-shrink:0;">${initial}</div><div><div style="${bubbleStyle}">${bubbleHtml}</div><div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${timeStr}</div></div></div>`;
+    }
+}
+
+// Append a WA message to chatArea, inserting a date separator if sent_at_day
+// (calculado por el backend en la timezone del tenant — ver MessageTimePresenter)
+// changed since el último separador ya pintado.
+function _waAppendMessage(chatArea, m) {
+    // Idempotencia por DOM: si el message id real ya está pintado, no lo
+    // duplicamos — defensa adicional a _knownMsgIds (que vive en memoria y
+    // se resetea al reabrir la conversación; esto chequea la fuente de verdad
+    // visual directamente).
+    if (chatArea.querySelector(`[data-message-id="${m.id}"]`)) {
+        return;
+    }
+
+    if (m.sent_at_day) {
+        const allSeps  = chatArea.querySelectorAll('[data-date]');
+        const lastDay  = allSeps.length > 0 ? allSeps[allSeps.length - 1].dataset.date : null;
+        if (m.sent_at_day !== lastDay) {
+            chatArea.insertAdjacentHTML('beforeend',
+                `<div data-date="${m.sent_at_day}" style="text-align:center;font-size:11px;color:var(--text-muted);margin:8px 0;display:flex;align-items:center;gap:8px;"><div style="flex:1;height:0.5px;background:var(--border);"></div>${m.sent_at_date}<div style="flex:1;height:0.5px;background:var(--border);"></div></div>`
+            );
+        }
+    }
+    chatArea.insertAdjacentHTML('beforeend', renderWaMessage(m));
+}
+
+function renderMessage(m) {
+    const isOutbound = m.direction === 'outbound';
+    const msgId = `msg-body-${m.id}`;
+    return `
+        <div data-msg-id="${m.id}" style="margin-bottom:12px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:#ffffff;">
+            <div onclick="toggleMessage('${msgId}')" style="display:flex;align-items:center;gap:10px;padding:10px 14px;min-height:52px;cursor:pointer;background:var(--bg-card);"
+                onmouseover="this.style.background='var(--bg-stripe)'"
+                onmouseout="this.style.background='var(--bg-card)'">
+                <div style="width:32px;height:32px;border-radius:50%;background:${isOutbound ? 'var(--primary)' : 'var(--bg-stripe)'};color:${isOutbound ? 'white' : 'var(--text-strong)'};font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                    ${(m.from_email || '?').substring(0,1).toUpperCase()}
+                </div>
+                <div style="flex:1;min-width:0;">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <span style="font-size:13px;font-weight:600;color:var(--text-strong);">${m.from_email}</span>
+                        <span style="font-size:11px;color:var(--text-muted);">→ ${m.to_email}</span>
+                        <span style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:99px;background:${isOutbound ? 'var(--bg-th)' : '#dcfce7'};color:${isOutbound ? 'var(--primary)' : '#16a34a'};">
+                            ${isOutbound ? '↑ OUTBOUND' : '↓ INBOUND'}
+                        </span>
+                    </div>
+                    ${m.cc_emails ? `
+                        <div style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:500px;padding-top:2px;">
+                            CC: ${m.cc_emails}
+                        </div>
+                    ` : ''}
+                </div>
+                <span style="font-size:11px;color:var(--text-muted);flex-shrink:0;">${m.sent_at_date ? `${m.sent_at_date} · ${m.sent_at_time}` : ''}</span>
+                <i class="bi bi-chevron-down" id="icon-${msgId}" style="font-size:11px;color:var(--text-muted);transition:transform .2s;flex-shrink:0;"></i>
+            </div>
+            <div id="${msgId}" style="border-top:1px solid var(--border);">
+                <div class="msg-html-body" style="padding:12px 16px;font-size:13px;line-height:1.6;color:#334155;word-break:break-word;">${m.body_html || (m.body_text ? m.body_text.replace(/\n/g, '<br>') : '')}</div>
+                ${m.attachments?.length ? `
+                    <div style="display:flex;gap:8px;padding:8px 14px 12px;flex-wrap:wrap;border-top:1px solid var(--border);">
+                        ${m.attachments.map(a => `
+                            <a href="/attachments/${a.id}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;color:var(--text-mid);text-decoration:none;">
+                                <i class="bi bi-paperclip"></i> ${a.filename}
+                            </a>
+                        `).join('')}
+                    </div>
+                ` : ''}
+            </div>
+        </div>
+    `;
+}
+
+let currentReplyMode = 'reply';
+let currentReplyTo = '';
+let currentReplyCc = '';
+
+function setReplyMode(mode, convId, replyTo, ccEmails) {
+    currentReplyMode = mode;
+    currentReplyTo = replyTo;
+    currentReplyCc = ccEmails;
+
+    document.querySelectorAll('.reply-mode-btn').forEach(btn => {
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-secondary');
+    });
+    document.getElementById(`btn-${mode}`)?.classList.remove('btn-secondary');
+    document.getElementById(`btn-${mode}`)?.classList.add('btn-primary');
+
+    const modeLabel = document.getElementById('replyMode');
+    const ccPreview = document.getElementById('replyCcPreview');
+
+    const sendBtn = document.querySelector(`button[onclick="sendReply(${convId})"]`);
+    if (sendBtn) {
+        if (mode === 'reply') sendBtn.innerHTML = '<i class="bi bi-send"></i> Send Reply';
+        if (mode === 'replyall') sendBtn.innerHTML = '<i class="bi bi-send"></i> Send Reply All';
+        if (mode === 'forward') sendBtn.innerHTML = '<i class="bi bi-send"></i> Forward';
+    }
+
+    if (mode === 'reply') {
+        modeLabel.innerHTML = `<i class="bi bi-reply"></i> Reply to ${replyTo}`;
+        if (ccPreview) ccPreview.style.display = 'none';
+    } else if (mode === 'replyall') {
+        modeLabel.innerHTML = `<i class="bi bi-reply-all"></i> Reply All to ${replyTo}`;
+        if (ccPreview) ccPreview.style.display = 'block';
+    } else if (mode === 'forward') {
+        modeLabel.innerHTML = `<i class="bi bi-forward"></i> Forward to: <input id="forwardTo" type="text" placeholder="email1@x.com, email2@x.com" style="border:none;border-bottom:1px solid var(--border);outline:none;font-size:13px;background:transparent;color:var(--text-strong);width:250px;">`;
+        if (ccPreview) ccPreview.style.display = 'none';
+    }
+}
+
+async function sendForward(conversationId, forwardTo) {
+    const body = window.joditEditor?.value?.trim() || '';
+    if (!body) { showToast('Please write a message.', 'error'); return; }
+
+    const btn = document.querySelector(`button[onclick="sendReply(${conversationId})"]`);
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending...';
+    btn.style.opacity = '0.7';
+
+    const formData = new FormData();
+    formData.append('body', body.replace(/\n/g, '<br>'));
+    formData.append('forward_to', forwardTo);
+    selectedAttachments.forEach((file, i) => {
+        formData.append(`attachments[${i}]`, file);
+    });
+
+    const resp = await fetch(`/console/conversation/${conversationId}/forward`, {
+        method: 'POST',
+        headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
+        body: formData
+    });
+
+    const data = await resp.json();
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+    btn.style.opacity = '1';
+
+    if (data.ok) {
+        if (window.joditEditor) window.joditEditor.value = agentSignature ? `<p><br></p><p>--</p>${agentSignature}` : '';
+        selectedAttachments = [];
+        renderAttachmentList();
+        const thread = document.getElementById('messageThread');
+        if (thread) {
+            const newMessage = {
+                id: data.message_id,
+                direction: 'outbound',
+                from_email: data.from_email,
+                to_email: data.to_email,
+                cc_emails: null,
+                body_html: data.body_html,
+                body_text: data.body_text,
+                sent_at_iso: data.sent_at_iso,
+                sent_at_time: data.sent_at_time,
+                sent_at_date: data.sent_at_date,
+                sent_at_day: data.sent_at_day,
+                attachments: data.attachments || [],
+            };
+            thread.insertAdjacentHTML('afterbegin', renderMessage(newMessage));
+            thread.scrollTop = 0;
+            if (data.message_id) _knownMsgIds.add(Number(data.message_id));
+        }
+        setReplyMode('reply', conversationId, currentReplyTo, '');
+        showToast('Email forwarded.', 'success');
+    } else {
+        showToast(data.error || 'Error forwarding email.', 'error');
+    }
+}
+
+let selectedAttachments = [];
+
+function handleAttachments(files) {
+    selectedAttachments = [...selectedAttachments, ...Array.from(files)];
+    renderAttachmentList();
+    document.getElementById('attachmentInput').value = '';
+}
+
+function renderAttachmentList() {
+    const list = document.getElementById('attachmentList');
+    if (!list) return;
+    if (selectedAttachments.length === 0) {
+        list.innerHTML = '';
+        list.style.padding = '0';
+        list.style.borderBottom = 'none';
+        return;
+    }
+    list.style.padding = '6px 16px';
+    list.style.borderBottom = '1px solid var(--border)';
+    list.innerHTML = selectedAttachments.map((f, i) => `
+        <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;color:var(--text-mid);background:var(--bg-th);">
+            <i class="bi bi-paperclip"></i>
+            <span>${f.name}</span>
+            <span onclick="removeAttachment(${i})" style="cursor:pointer;color:var(--danger);font-weight:700;margin-left:4px;">×</span>
+        </div>
+    `).join('');
+}
+
+function removeAttachment(index) {
+    selectedAttachments.splice(index, 1);
+    renderAttachmentList();
+}
+
+async function sendReply(conversationId) {
+    if (currentReplyMode === 'replyall') {
+        sendReplyAll(conversationId, currentReplyCc);
+        return;
+    }
+    if (currentReplyMode === 'forward') {
+        const forwardTo = document.getElementById('forwardTo')?.value.trim();
+        if (!forwardTo) { showToast('Please enter a forward email.', 'error'); return; }
+        sendForward(conversationId, forwardTo);
+        return;
+    }
+
+    let body = window.joditEditor?.value?.trim() || '';
+    body = body.replace(/(<p>\s*(<br\s*\/?>\s*)*<\/p>\s*)+(?=<table)/gi, '');
+    body = body.replace(/(<br\s*\/?>\s*)+(?=<table)/gi, '');
+    body = body.replace(/border-color:\s*([^;}"]+)/g, 'border: 1px solid $1');
+    body = body.replace(/<tr>\s*<td>\s*<br\s*\/?>\s*<\/td>\s*<\/tr>/gi, '');
+    body = body.replace(/<td>\s*<br\s*\/?>\s*<\/td>/gi, '');
+
+    if (!body) { showToast('Please write a reply.', 'error'); return; }
+
+    const btn = document.querySelector(`button[onclick="sendReply(${conversationId})"]`);
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending...';
+    btn.style.opacity = '0.7';
+
+    const formData = new FormData();
+    formData.append('body', body.replace(/\n/g, '<br>'));
+    selectedAttachments.forEach((file, i) => {
+        formData.append(`attachments[${i}]`, file);
+    });
+
+    const resp = await fetch(`/console/conversation/${conversationId}/reply`, {
+        method: 'POST',
+        headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
+        body: formData
+    });
+
+    const data = await resp.json();
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+    btn.style.opacity = '1';
+
+    if (data.ok) {
+        if (window.joditEditor) window.joditEditor.value = agentSignature ? `<p><br></p><p>--</p>${agentSignature}` : '';
+        selectedAttachments = [];
+        renderAttachmentList();
+        const thread = document.getElementById('messageThread');
+        if (thread) {
+            const newMessage = {
+                id: data.message_id,
+                direction: 'outbound',
+                from_email: data.from_email,
+                to_email: data.to_email,
+                body_html: data.body_html,
+                body_text: data.body_text,
+                sent_at_time: data.sent_at_time,
+                sent_at_date: data.sent_at_date,
+                sent_at_day: data.sent_at_day,
+                attachments: data.attachments || [],
+            };
+            thread.insertAdjacentHTML('afterbegin', renderMessage(newMessage));
+            thread.scrollTop = 0;
+            if (data.message_id) _knownMsgIds.add(Number(data.message_id));
+        }
+        showToast('Reply sent successfully.', 'success');
+    } else {
+        showToast(data.error || 'Error sending reply.', 'error');
+    }
+}
+
+async function sendReplyAll(conversationId, ccEmails) {
+    let body = window.joditEditor?.value?.trim() || '';
+    body = body.replace(/(<br\s*\/?>\s*){3,}/gi, '<br>');
+    body = body.replace(/(<br\s*\/?>\s*)+(?=<table)/gi, '');
+    body = body.replace(/border-color:\s*([^;}"]+)/g, 'border: 1px solid $1');
+    body = body.replace(/<tr>\s*<td>\s*<br\s*\/?>\s*<\/td>\s*<\/tr>/gi, '');
+    body = body.replace(/<td>\s*<br\s*\/?>\s*<\/td>/gi, '');
+
+    if (!body) { showToast('Please write a reply.', 'error'); return; }
+
+    const btn = document.querySelector(`button[onclick="sendReply(${conversationId})"]`);
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending...';
+    btn.style.opacity = '0.7';
+
+    const formData = new FormData();
+    formData.append('body', body);
+    formData.append('cc_emails', ccEmails);
+    selectedAttachments.forEach((file, i) => {
+        formData.append(`attachments[${i}]`, file);
+    });
+
+    const resp = await fetch(`/console/conversation/${conversationId}/reply-all`, {
+        method: 'POST',
+        headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
+        body: formData
+    });
+
+    const data = await resp.json();
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+    btn.style.opacity = '1';
+
+    if (data.ok) {
+        if (window.joditEditor) window.joditEditor.value = agentSignature ? `<p><br></p><p>--</p>${agentSignature}` : '';
+        selectedAttachments = [];
+        renderAttachmentList();
+        const thread = document.getElementById('messageThread');
+        if (thread) {
+            const newMessage = {
+                id: data.message_id,
+                direction: 'outbound',
+                from_email: data.from_email,
+                to_email: data.to_email,
+                cc_emails: data.cc_emails,
+                body_html: data.body_html,
+                body_text: data.body_text,
+                sent_at_time: data.sent_at_time,
+                sent_at_date: data.sent_at_date,
+                sent_at_day: data.sent_at_day,
+                attachments: data.attachments || []
+            };
+            thread.insertAdjacentHTML('afterbegin', renderMessage(newMessage));
+            thread.scrollTop = 0;
+            if (data.message_id) _knownMsgIds.add(Number(data.message_id));
+        }
+        showToast('Reply sent to all.', 'success');
+    } else {
+        showToast(data.error || 'Error sending reply.', 'error');
+    }
+}
+
+const WA_TEMPLATES = Object.fromEntries(
+    (window.ConsoleConfig?.waTemplates || []).map(t => [t.name, t.body_preview || ''])
+);
+
+function openWhatsappCompose() {
+    const modal = document.getElementById('waComposeModal');
+    modal.style.display = 'flex';
+    document.getElementById('waComposePhone').value = '';
+    document.getElementById('waComposeLeadId').value = '';
+    clearWaComposeLead();
+    updateWaTemplatePreview();
+}
+
+function closeWaComposeModal() {
+    document.getElementById('waComposeModal').style.display = 'none';
+}
+
+// ── WA Compose Lead field ──
+let _waComposeLead = null;
+let _waComposeLeadTimer = null;
+
+function positionWaLeadDropdown() {
+    const input = document.getElementById('waComposeLeadInput');
+    const dd    = document.getElementById('waComposeLeadDropdown');
+    if (!input || !dd) return;
+    const rect      = input.getBoundingClientRect();
+    dd.style.top    = (rect.bottom + 2) + 'px';
+    dd.style.left   = rect.left + 'px';
+    dd.style.width  = rect.width + 'px';
+}
+
+function debounceWaLeadSearch(val) {
+    clearTimeout(_waComposeLeadTimer);
+    const dd = document.getElementById('waComposeLeadDropdown');
+    if (val.length < 1) { dd.style.display = 'none'; return; }
+    positionWaLeadDropdown();
+    dd.style.display = 'block';
+    dd.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--text-muted);">Searching...</div>';
+    _waComposeLeadTimer = setTimeout(() => runWaLeadSearch(val), 300);
+}
+
+async function runWaLeadSearch(q) {
+    const dd = document.getElementById('waComposeLeadDropdown');
+    positionWaLeadDropdown();
+    const resp = await fetch(`/console/leads/search?q=${encodeURIComponent(q)}`);
+    const data = await resp.json();
+    if (!data.leads || data.leads.length === 0) {
+        dd.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--text-muted);">No leads found.</div>';
+        return;
+    }
+    dd.innerHTML = data.leads.map(l => `
+        <div onclick="selectWaComposeLead(${l.id}, '${(l.first_name+' '+l.last_name).trim().replace(/'/g,"\\'")}') "
+             style="display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;border-bottom:0.5px solid var(--border);"
+             onmouseover="this.style.background='var(--bg-th)'" onmouseout="this.style.background=''">
+            <div style="width:28px;height:28px;border-radius:50%;background:var(--primary);color:white;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                ${(l.first_name||'?').charAt(0).toUpperCase()}
+            </div>
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:500;color:var(--text-strong);">${l.first_name} ${l.last_name}</div>
+                <div style="font-size:11px;color:var(--text-muted);">${l.email||''} ${l.phone ? '· '+l.phone : ''} ${l.campaign_name ? '· '+l.campaign_name : ''}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function selectWaComposeLead(id, name) {
+    _waComposeLead = { id, name };
+    document.getElementById('waComposeLeadId').value = id;
+    document.getElementById('waComposeLeadSearch').style.display = 'none';
+    document.getElementById('waComposeLeadChip').style.display = 'block';
+    document.getElementById('waComposeLeadChipAvatar').textContent = name.charAt(0).toUpperCase();
+    document.getElementById('waComposeLeadChipName').textContent = name;
+    document.getElementById('waComposeLeadDropdown').style.display = 'none';
+}
+
+function clearWaComposeLead() {
+    _waComposeLead = null;
+    document.getElementById('waComposeLeadId').value = '';
+    document.getElementById('waComposeLeadChip').style.display = 'none';
+    document.getElementById('waComposeLeadSearch').style.display = 'block';
+    document.getElementById('waComposeLeadInput').value = '';
+}
+
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('#waComposeLeadWrap')) {
+        const dd = document.getElementById('waComposeLeadDropdown');
+        if (dd) dd.style.display = 'none';
+    }
+});
+
+function updateWaTemplatePreview() {
+    const tpl     = document.getElementById('waComposeTemplate').value;
+    const preview = document.getElementById('waTemplatePreview');
+    if (tpl && tpl in WA_TEMPLATES) {
+        preview.innerHTML = WA_TEMPLATES[tpl] ? WA_TEMPLATES[tpl].replace(/\n/g, '<br>') : '<span style="color:var(--text-muted);font-style:italic;">No preview available</span>';
+    } else {
+        preview.innerHTML = '';
+    }
+}
+
+function _consoleSendErrorMessage(data, fallback = 'Unable to send the message.') {
+    const firstValidationError = data?.errors
+        ? Object.values(data.errors).flat().find(Boolean)
+        : null;
+
+    return firstValidationError
+        || data?.error
+        || data?.message
+        || fallback;
+}
+
+async function _consoleReadJsonResponse(resp) {
+    try {
+        return await resp.json();
+    } catch (_) {
+        return {};
+    }
+}
+
+async function sendWaTemplate() {
+    const phone     = document.getElementById('waComposePhone').value.trim();
+    const country   = document.getElementById('waComposeCountry').value;
+    const template  = document.getElementById('waComposeTemplate').value;
+    const accountId = document.getElementById('waComposeAccount').value;
+    const leadId    = document.getElementById('waComposeLeadId').value;
+
+    if (!phone || phone.length !== 10) {
+        showToast('Please enter a valid 10-digit phone number.', 'error');
+        return;
+    }
+
+    const fullPhone = country + phone;
+    const btn = document.getElementById('waSendTemplateBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending...';
+
+    try {
+        const resp = await fetch('/console/whatsapp/send-template', {
+            method: 'POST',
+            headers: {
+                'Content-Type':  'application/json',
+                'X-CSRF-TOKEN':  document.querySelector('meta[name="csrf-token"]').content,
+            },
+            body: JSON.stringify({
+                account_id:    accountId,
+                phone:         fullPhone,
+                template_name: template,
+                lead_id:       leadId || null,
+            }),
+        });
+        const d = await _consoleReadJsonResponse(resp);
+        if (d.ok) {
+            // Auto-activar agente si está offline/paused para que reciba la respuesta
+            if (!@json($voiceCapability['eligible']) && currentStatus !== 'ready') {
+                await setStatus('ready');
+            }
+            closeWaComposeModal();
+            refreshConversationList();
+            if (d.conversation_id) openConversation(d.conversation_id);
+        } else {
+            showToast(_consoleSendErrorMessage(d), 'error');
+        }
+    } catch (err) {
+        showToast(err?.message || 'Unable to send the message.', 'error');
+        console.error(err);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-whatsapp"></i> Send Template';
+    }
+}
+
+const _waModal = document.getElementById('waComposeModal');
+if (_waModal) {
+    let _waMdX, _waMdY, _waStartedOnOverlay = false;
+    _waModal.addEventListener('mousedown', function(e) {
+        _waStartedOnOverlay = (e.target === _waModal);
+        if (_waStartedOnOverlay) { _waMdX = e.clientX; _waMdY = e.clientY; }
+    });
+    _waModal.addEventListener('mouseup', function(e) {
+        if (!_waStartedOnOverlay || e.target !== _waModal) return;
+        if (Math.abs(e.clientX - _waMdX) < 5 && Math.abs(e.clientY - _waMdY) < 5) {
+            closeWaComposeModal();
+        }
+    });
+}
+
+// ── SMS Compose (Quick Actions — P2P) ──────────────────────────────────────
+// Campaign y Queue se DERIVAN del número (backend). El agente solo ve los
+// números elegibles (window.ConsoleConfig.smsEligibleChannels): auto-selección
+// si hay uno, dropdown si hay varios, aviso + Send deshabilitado si no hay.
+
+function _smsEligibleChannels() {
+    return window.ConsoleConfig?.smsEligibleChannels || [];
+}
+
+function _smsDisplayNationalNumber(address) {
+    const raw = String(address || '').trim();
+    const digits = raw.replace(/[^0-9]/g, '');
+    if (digits.length === 10) return digits;
+    if (digits.length === 11 && digits.startsWith('1')) return digits.slice(-10);
+    if (digits.length === 12 && digits.startsWith('52')) return digits.slice(-10);
+    if (digits.length === 13 && digits.startsWith('521')) return digits.slice(-10);
+    return raw;
+}
+
+function _smsChannelDisplayLabel(channel) {
+    return `${channel.display_name} (${_smsDisplayNationalNumber(channel.address)})`;
+}
+
+// Canal SMS actualmente seleccionado (objeto completo) — fuente única para
+// derivar queue/campaign de cara al filtro de templates y la búsqueda de leads.
+function _selectedSmsChannel() {
+    const channels = _smsEligibleChannels();
+    if (channels.length === 0) return null;
+    if (channels.length === 1) return channels[0];
+    const id = document.getElementById('smsComposeChannel')?.value;
+    return channels.find(c => String(c.id) === String(id)) || null;
+}
+
+function openSmsCompose() {
+    const modal = document.getElementById('smsComposeModal');
+    modal.style.display = 'flex';
+    document.getElementById('smsComposePhone').value = '';
+    document.getElementById('smsComposeBody').value = '';
+    document.getElementById('smsComposeLeadId').value = '';
+    clearSmsComposeLead();
+
+    const channels = _smsEligibleChannels();
+    const wrap   = document.getElementById('smsComposeChannelWrap');
+    const single = document.getElementById('smsComposeChannelSingle');
+    const none   = document.getElementById('smsComposeChannelNone');
+    const sendBtn = document.getElementById('smsSendBtn');
+    const sel    = document.getElementById('smsComposeChannel');
+
+    wrap.style.display = 'none';
+    single.style.display = 'none';
+    none.style.display = 'none';
+    sendBtn.disabled = false;
+
+    if (channels.length === 0) {
+        // Sin números elegibles → aviso + Send deshabilitado.
+        none.style.display = 'block';
+        sendBtn.disabled = true;
+    } else if (channels.length === 1) {
+        // Un solo número → auto-seleccionado, sin dropdown.
+        single.style.display = 'block';
+        single.textContent = 'Sending from: ' + _smsChannelDisplayLabel(channels[0]);
+    } else {
+        // Varios → dropdown con "Canal (número nacional)".
+        wrap.style.display = 'block';
+        sel.innerHTML = channels.map(c =>
+            `<option value="${c.id}">${_smsChannelDisplayLabel(c)}</option>`
+        ).join('');
+    }
+
+    populateSmsTemplateOptions();
+    updateSmsSegmentCounter();
+}
+
+function closeSmsComposeModal() {
+    document.getElementById('smsComposeModal').style.display = 'none';
+}
+
+// Templates visibles: globales del tenant (omni_queue_id null) o de la queue
+// del canal seleccionado. El backend revalida en el envío.
+function populateSmsTemplateOptions() {
+    const sel = document.getElementById('smsComposeTemplate');
+    const queueId = _selectedSmsChannel()?.omni_queue_id ?? null;
+    const templates = (window.ConsoleConfig?.smsTemplates || []).filter(t =>
+        !t.omni_queue_id || (queueId && String(t.omni_queue_id) === String(queueId))
+    );
+    sel.innerHTML = '<option value="">— No template (write freely) —</option>' +
+        templates.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+}
+
+// Al cambiar de número (solo cuando hay dropdown): re-filtrar templates y
+// limpiar el lead seleccionado (su campaign puede ya no aplicar).
+function onSmsChannelChange() {
+    populateSmsTemplateOptions();
+    clearSmsComposeLead();
+}
+
+function applySmsTemplate() {
+    const templateId = document.getElementById('smsComposeTemplate').value;
+    const templates = window.ConsoleConfig?.smsTemplates || [];
+    const tpl = templates.find(t => String(t.id) === String(templateId));
+    if (tpl) {
+        document.getElementById('smsComposeBody').value = tpl.body;
+        updateSmsSegmentCounter();
+    }
+}
+
+function updateSmsSegmentCounter() {
+    const textarea = document.getElementById('smsComposeBody');
+    const counter  = document.getElementById('smsSegmentCounter');
+    if (!textarea || !counter || typeof SmsSegmentCounter === 'undefined') return;
+    const maxSegments = window.ConsoleConfig?.maxSmsSegments || 3;
+    const result = SmsSegmentCounter.formatLabel(textarea.value, maxSegments);
+    counter.textContent = result.label;
+    counter.style.color = result.analysis.segments > maxSegments ? '#dc2626' : 'var(--text-muted)';
+}
+
+// ── SMS Compose Lead field (misma UX que WhatsApp compose) ──
+let _smsComposeLead = null;
+let _smsComposeLeadTimer = null;
+
+function positionSmsLeadDropdown() {
+    const input = document.getElementById('smsComposeLeadInput');
+    const dd    = document.getElementById('smsComposeLeadDropdown');
+    if (!input || !dd) return;
+    const rect      = input.getBoundingClientRect();
+    dd.style.top    = (rect.bottom + 2) + 'px';
+    dd.style.left   = rect.left + 'px';
+    dd.style.width  = rect.width + 'px';
+}
+
+function debounceSmsLeadSearch(val) {
+    clearTimeout(_smsComposeLeadTimer);
+    const dd = document.getElementById('smsComposeLeadDropdown');
+    if (val.length < 1) { dd.style.display = 'none'; return; }
+    positionSmsLeadDropdown();
+    dd.style.display = 'block';
+    dd.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--text-muted);">Searching...</div>';
+    _smsComposeLeadTimer = setTimeout(() => runSmsLeadSearch(val), 300);
+}
+
+async function runSmsLeadSearch(q) {
+    const dd = document.getElementById('smsComposeLeadDropdown');
+    positionSmsLeadDropdown();
+    // La búsqueda se limita a la campaign derivada del número seleccionado —
+    // no ofrecer Leads de otras campaigns. El backend re-scopea igualmente.
+    const campaignId = _selectedSmsChannel()?.campaign_id || null;
+    let url = `/console/leads/search?q=${encodeURIComponent(q)}`;
+    if (campaignId) url += `&campaign_id=${encodeURIComponent(campaignId)}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (!data.leads || data.leads.length === 0) {
+        dd.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--text-muted);">No leads found.</div>';
+        return;
+    }
+    dd.innerHTML = data.leads.map(l => `
+        <div onclick="selectSmsComposeLead(${l.id}, '${(l.first_name+' '+l.last_name).trim().replace(/'/g,"\\'")}', '${(l.phone||'').replace(/[^0-9]/g,'')}')"
+             style="display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;border-bottom:0.5px solid var(--border);"
+             onmouseover="this.style.background='var(--bg-th)'" onmouseout="this.style.background=''">
+            <div style="width:28px;height:28px;border-radius:50%;background:var(--primary);color:white;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                ${(l.first_name||'?').charAt(0).toUpperCase()}
+            </div>
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:500;color:var(--text-strong);">${l.first_name} ${l.last_name}</div>
+                <div style="font-size:11px;color:var(--text-muted);">${l.email||''} ${l.phone ? '· '+l.phone : ''} ${l.campaign_name ? '· '+l.campaign_name : ''}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function selectSmsComposeLead(id, name, phone) {
+    _smsComposeLead = { id, name };
+    document.getElementById('smsComposeLeadId').value = id;
+    document.getElementById('smsComposeLeadSearch').style.display = 'none';
+    document.getElementById('smsComposeLeadChip').style.display = 'block';
+    document.getElementById('smsComposeLeadChipAvatar').textContent = name.charAt(0).toUpperCase();
+    document.getElementById('smsComposeLeadChipName').textContent = name;
+    document.getElementById('smsComposeLeadDropdown').style.display = 'none';
+
+    // Al seleccionar un Lead, autollenar destination con su teléfono (últimos
+    // 10 dígitos nacionales — el prefijo de país lo pone el selector aparte).
+    const digits = (phone || '').replace(/[^0-9]/g, '');
+    if (digits.length >= 10) {
+        document.getElementById('smsComposePhone').value = digits.slice(-10);
+    }
+}
+
+function clearSmsComposeLead() {
+    _smsComposeLead = null;
+    document.getElementById('smsComposeLeadId').value = '';
+    document.getElementById('smsComposeLeadChip').style.display = 'none';
+    document.getElementById('smsComposeLeadSearch').style.display = 'block';
+    document.getElementById('smsComposeLeadInput').value = '';
+}
+
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('#smsComposeLeadWrap')) {
+        const dd = document.getElementById('smsComposeLeadDropdown');
+        if (dd) dd.style.display = 'none';
+    }
+});
+
+async function sendSmsP2p() {
+    const phone     = document.getElementById('smsComposePhone').value.trim();
+    const country   = document.getElementById('smsComposeCountry').value;
+    const channel   = _selectedSmsChannel();
+    const channelId = channel ? channel.id : null;
+    const body      = document.getElementById('smsComposeBody').value.trim();
+    const leadId    = document.getElementById('smsComposeLeadId').value;
+    const templateId = document.getElementById('smsComposeTemplate').value;
+
+    if (!channelId) {
+        showToast('You do not have an outbound SMS number assigned to one of your active queues.', 'error');
+        return;
+    }
+    if (!phone || phone.length !== 10) {
+        showToast('Please enter a valid 10-digit phone number.', 'error');
+        return;
+    }
+    if (!body) {
+        showToast('Please enter a message.', 'error');
+        return;
+    }
+
+    // country_code y destination_number van SEPARADOS al backend — la
+    // concatenación final vive en un único lugar (PhoneHelper::composeInternationalDestination),
+    // nunca aquí. Antes este JS armaba "country + phone" y el <option> de MX
+    // mandaba "521" en vez de "52", agregando un "1" de más al destino real.
+    const btn = document.getElementById('smsSendBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending...';
+
+    try {
+        const resp = await fetch('/console/sms/send', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+            },
+            body: JSON.stringify({
+                channel_id:         channelId,
+                country_code:       country,
+                destination_number: phone,
+                body:               body,
+                lead_id:            leadId || null,
+                template_id:        templateId || null,
+            }),
+        });
+        const d = await _consoleReadJsonResponse(resp);
+        if (d.ok) {
+            if (!@json($voiceCapability['eligible']) && currentStatus !== 'ready') {
+                await setStatus('ready');
+            }
+            closeSmsComposeModal();
+            refreshConversationList();
+            if (d.conversation_id) openConversation(d.conversation_id);
+        } else {
+            showToast(_consoleSendErrorMessage(d), 'error');
+        }
+    } catch (err) {
+        showToast(err?.message || 'Unable to send the message.', 'error');
+        console.error(err);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-chat-text"></i> Send SMS';
+    }
+}
+
+const _smsModal = document.getElementById('smsComposeModal');
+if (_smsModal) {
+    let _smsMdX, _smsMdY, _smsStartedOnOverlay = false;
+    _smsModal.addEventListener('mousedown', function(e) {
+        _smsStartedOnOverlay = (e.target === _smsModal);
+        if (_smsStartedOnOverlay) { _smsMdX = e.clientX; _smsMdY = e.clientY; }
+    });
+    _smsModal.addEventListener('mouseup', function(e) {
+        if (!_smsStartedOnOverlay || e.target !== _smsModal) return;
+        if (Math.abs(e.clientX - _smsMdX) < 5 && Math.abs(e.clientY - _smsMdY) < 5) {
+            closeSmsComposeModal();
+        }
+    });
+}
+
+async function sendWhatsappReply(channel) {
+    channel = channel || 'whatsapp';
+    const textarea = document.getElementById('waReplyBody');
+    const body = textarea?.value?.trim();
+    if (!body) return;
+
+    const sendBtn  = document.getElementById('waSendBtn');
+    const iconClass = _sendIcon(channel);
+    if (sendBtn) { sendBtn.disabled = true; sendBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending...'; }
+
+    try {
+        let resp;
+        if (channel === 'chat') {
+            resp = await fetch(`/console/chat/${activeConversationId}/send`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                },
+                body: JSON.stringify({ body_text: body }),
+            });
+        } else if (channel === 'facebook' || channel === 'instagram') {
+            resp = await fetch('/console/social/send', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                },
+                body: JSON.stringify({ conversation_id: activeConversationId, body }),
+            });
+        } else if (channel === 'sms') {
+            resp = await fetch('/console/sms/reply', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                },
+                body: JSON.stringify({ conversation_id: activeConversationId, body }),
+            });
+        } else {
+            resp = await fetch('/console/whatsapp/send', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                },
+                body: JSON.stringify({ conversation_id: activeConversationId, body }),
+            });
+        }
+
+        const data = await _consoleReadJsonResponse(resp);
+
+        if (!resp.ok) {
+            showToast(_consoleSendErrorMessage(data), 'error');
+            return;
+        }
+
+        textarea.value = '';
+        const counter = document.getElementById('waCharCount');
+        if (counter) counter.textContent = '0 / 4096';
+
+        const chatArea = document.getElementById('waChatArea');
+        if (chatArea) {
+            // Chat: respuesta plana { id, body_text, sent_at_time, ..., direction }
+            // WA/SMS/social: respuesta envuelta { message: { ... } }
+            // Ambas formas ya traen sent_at_iso/time/date/day/timezone del
+            // backend (MessageTimePresenter) — no se remapea nada aquí.
+            const raw = channel === 'chat' ? data : data.message;
+            if (raw) {
+                _waAppendMessage(chatArea, raw);
+                chatArea.scrollTop = chatArea.scrollHeight;
+                _knownMsgIds.add(Number(raw.id));
+            }
+        }
+    } catch (err) {
+        showToast(err?.message || 'Unable to send the message.', 'error');
+    } finally {
+        if (sendBtn) { sendBtn.disabled = false; sendBtn.innerHTML = `<i class="bi ${iconClass}"></i> Send`; }
+    }
+}
+
+function closeModal(id) {
+    if (id === 'composeModal') { closeComposeModal(); return; }
+    document.getElementById(id).classList.remove('active');
+}
+
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('#statusIndicator') && !e.target.closest('#statusMenu')) {
+        document.getElementById('statusMenu').style.display = 'none';
+        document.getElementById('statusIndicator')
+            ?.setAttribute('aria-expanded', 'false');
+    }
+    if (!e.target.closest('#notifBtn') && !e.target.closest('#notifDropdown')) {
+        document.getElementById('notifDropdown').style.display = 'none';
+    }
+    if (!e.target.closest('#notifWaBtn') && !e.target.closest('#notifWaDropdown')) {
+        const waDd = document.getElementById('notifWaDropdown');
+        if (waDd) waDd.style.display = 'none';
+    }
+});
+
+let currentDispositions = [];
+let selectedDispositionId = null;
+let selectedDispositionName = null;
+let selectedDispositionRequiresCallbackAt = false;
+let isDispositionSubmitting = false;
+
+// Public setter so external scripts (e.g. voice adapter) can update the lexical
+// `currentDispositions` binding. Using `window.currentDispositions =` from outside
+// would write to the global object property, NOT to this `let` binding — they are
+// different slots. The setter runs in this script scope and updates the correct variable.
+window.setCurrentDispositions = function(arr) {
+    currentDispositions = Array.isArray(arr) ? arr : [];
+};
+
+// Getter so external scripts can read `leadPanelOpen` (a `let` in this Script Scope).
+// window.leadPanelOpen would always be undefined because `let` bindings are not
+// properties of the global object.  This getter runs in the correct scope.
+window.isLeadPanelOpen = function() {
+    return leadPanelOpen;
+};
+
+function setDisposition(convId, channel = null) {
+    selectedDispositionId = null;
+    selectedDispositionName = null;
+    selectedDispositionRequiresCallbackAt = false;
+    document.getElementById('dispositionConvId').value = convId;
+    document.getElementById('dispositionSearch').value = '';
+    document.getElementById('dispositionApplyBtn').disabled = true;
+    renderDispositionOptions(convId, currentDispositions);
+    document.getElementById('dispositionModal').classList.add('active');
+    let existingNotes = '';
+    try {
+        const meta = JSON.parse(document.getElementById('_scriptMeta')?.dataset.meta || '{}');
+        existingNotes = meta.notes || '';
+    } catch (e) { /* no meta available — leave blank */ }
+    document.getElementById('dispositionNotes').value = existingNotes;
+    document.getElementById('callbackAt').value = '';
+    document.getElementById('callbackAtGroup').style.display = 'none';
+    setupAfterDispositionStatusField(channel === 'voice');
+    setTimeout(() => document.getElementById('dispositionSearch').focus(), 100);
+}
+
+// After Disposition Status (Voice only). Default reflects the CURRENT requested
+// AgentSession state at modal-open time — never hardcoded to Ready. A refreshed
+// Wrap-Up (requested=offline, effective=wrap_up) must default to Offline, not
+// Ready, so a distracted agent submitting without looking never accidentally
+// goes Ready.
+function setupAfterDispositionStatusField(isVoice) {
+    const group = document.getElementById('afterDispositionStatusGroup');
+    if (!group) return;
+    group.style.display = isVoice ? 'block' : 'none';
+    if (!isVoice) return;
+
+    const select = document.getElementById('afterDispositionStatusSelect');
+    let defaultValue = 'offline';
+    if (currentStatus === 'ready') {
+        defaultValue = 'ready';
+    } else if (currentStatus === 'paused' && currentPauseReasonId
+        && select.querySelector(`option[value="pause_${currentPauseReasonId}"]`)) {
+        defaultValue = `pause_${currentPauseReasonId}`;
+    }
+    // currentStatus === 'offline', or 'paused' with no longer a valid/found
+    // reason, both fall through to the 'offline' default above — the smallest
+    // safe fallback (never silently default to Ready).
+    select.value = defaultValue;
+}
+
+// Read only at disposition submit time — selecting a value never mutates
+// status before the disposition actually succeeds (Wrap-Up Truth Rule).
+window.getAfterDispositionStatusSelection = function () {
+    const group = document.getElementById('afterDispositionStatusGroup');
+    const select = document.getElementById('afterDispositionStatusSelect');
+    if (!group || !select || group.style.display === 'none') {
+        return { status: null, pauseReasonId: null };
+    }
+    const value = select.value;
+    if (value === 'ready') return { status: 'ready', pauseReasonId: null };
+    if (value === 'offline') return { status: 'offline', pauseReasonId: null };
+    if (value.startsWith('pause_')) {
+        return { status: 'paused', pauseReasonId: parseInt(value.slice('pause_'.length), 10) };
+    }
+    return { status: null, pauseReasonId: null };
+};
+
+function renderDispositionOptions(convId, dispositions) {
+    const options = dispositions.map(d => {
+        const dispositionId = Number(d.id);
+        const dispositionName = _escHtml(d.name || '');
+        const requiresCallbackAt = d.requires_callback_at ? '1' : '0';
+
+        return `
+        <div id="dispo-${dispositionId}" data-disposition-option="1" data-disposition-id="${dispositionId}" data-disposition-name="${dispositionName}" data-requires-callback-at="${requiresCallbackAt}"
+             style="padding:12px 14px;cursor:pointer;border-radius:var(--radius-sm);font-size:13px;color:var(--text-strong);display:flex;align-items:center;gap:12px;border:1px solid var(--border);"
+             onmouseover="if(selectedDispositionId!=${dispositionId}) this.style.background='var(--bg-th)'"
+             onmouseout="this.style.background=(selectedDispositionId==${dispositionId} ? 'var(--primary-light)' : '')">
+            <span style="width:12px;height:12px;border-radius:50%;background:${_escHtml(d.bg_color || '#94a3b8')};flex-shrink:0;"></span>
+            <div style="flex:1;">
+                <div style="font-weight:500;">${dispositionName}</div>
+                ${d.description ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${_escHtml(d.description)}</div>` : ''}
+            </div>
+        </div>
+    `;
+    }).join('');
+    const container = document.getElementById('dispositionOptions');
+    container.innerHTML = options ||
+        '<div style="padding:16px;color:var(--text-muted);font-size:13px;text-align:center;">No dispositions found</div>';
+    container.querySelectorAll('[data-disposition-option="1"]').forEach(option => {
+        option.addEventListener('click', () => {
+            selectDisposition(
+                Number(option.dataset.dispositionId),
+                option.dataset.dispositionName || '',
+                option.dataset.requiresCallbackAt === '1'
+            );
+        });
+    });
+}
+
+function selectDisposition(id, name, requiresCallbackAt = false) {
+    if (selectedDispositionId) {
+        const prev = document.getElementById(`dispo-${selectedDispositionId}`);
+        if (prev) {
+            prev.style.background = '';
+            prev.style.border = '1px solid var(--border)';
+        }
+    }
+    selectedDispositionId = id;
+    selectedDispositionName = name;
+    selectedDispositionRequiresCallbackAt = !!requiresCallbackAt;
+    document.getElementById('callbackAtGroup').style.display = selectedDispositionRequiresCallbackAt ? 'block' : 'none';
+    if (!selectedDispositionRequiresCallbackAt) {
+        document.getElementById('callbackAt').value = '';
+    }
+    const el = document.getElementById(`dispo-${id}`);
+    if (el) {
+        el.style.background = 'var(--primary-light)';
+        el.style.border = '1px solid var(--primary)';
+    }
+    document.getElementById('dispositionApplyBtn').disabled = false;
+}
+
+function filterDispositions() {
+    const search = document.getElementById('dispositionSearch').value.toLowerCase();
+    const convId = document.getElementById('dispositionConvId').value;
+    const filtered = currentDispositions.filter(d => d.name.toLowerCase().includes(search));
+    renderDispositionOptions(convId, filtered);
+}
+
+async function applyDisposition(convId, dispositionId, dispositionName) {
+    const btn = document.getElementById('dispositionApplyBtn');
+    if (isDispositionSubmitting) return;
+
+    isDispositionSubmitting = true;
+    btn.disabled = true;
+    let dispositionSucceeded = false;
+    let shouldReenableButton = true;
+
+    try {
+        const resp = await fetch(`/console/conversation/${convId}/disposition`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+            },
+            body: JSON.stringify({
+                disposition_id: dispositionId,
+                notes: document.getElementById('dispositionNotes').value.trim() || null,
+                callback_at: selectedDispositionRequiresCallbackAt
+                    ? (document.getElementById('callbackAt').value || null)
+                    : null,
+                after_disposition_status: window.getAfterDispositionStatusSelection
+                    ? window.getAfterDispositionStatusSelection().status
+                    : null,
+                after_disposition_pause_reason_id: window.getAfterDispositionStatusSelection
+                    ? window.getAfterDispositionStatusSelection().pauseReasonId
+                    : null,
+            })
+        });
+
+        const data = await resp.json();
+        if (data.ok) {
+            dispositionSucceeded = true;
+            shouldReenableButton = false;
+            activeConversationId = null;
+
+            // Clear the local Voice Wrap-Up before painting the final server
+            // snapshot, closing the short selector-lock race after disposition.
+            cleanupDispositionConversation(convId);
+
+            closeModal('dispositionModal');
+            showToast(`Dispositioned as: ${dispositionName}`, 'success');
+
+            // After Disposition Status (Voice only): the response is authoritative —
+            // never guess locally with a cached pre-call statusSince. If another
+            // answered Voice Wrap-Up is still pending, effective_status stays
+            // 'wrap_up' and the header must NOT change yet (Multiple Wrap-Up rule).
+            if (data.effective_status && data.effective_status !== 'wrap_up') {
+                window.applyAgentStatusSnapshotFromServer({
+                    status: data.requested_status,
+                    pause_reason_name: data.pause_reason_name,
+                    pause_reason_color: data.pause_reason_color,
+                    status_since: data.status_since,
+                });
+            }
+
+            refreshConversationList();
+            pollUnread();
+        } else {
+            const firstError = data.errors
+                ? Object.values(data.errors).flat()[0]
+                : null;
+            showToast(firstError || data.error || 'Error', 'error');
+        }
+    } catch (err) {
+        showToast(err?.message || 'Error', 'error');
+        console.error(err);
+    } finally {
+        if (dispositionSucceeded) {
+            cleanupDispositionConversation(convId);
+        }
+        isDispositionSubmitting = false;
+        if (shouldReenableButton) {
+            btn.disabled = false;
+        }
+    }
+}
+
+function cleanupDispositionConversation(convId) {
+    // Remove the generic conv-item card (Email/WhatsApp/Facebook)
+    document.querySelector(`.conv-item[data-id="${convId}"]`)?.remove();
+
+    // Remove Voice card and clean up adapter state if this was a Voice conversation.
+    // This mirrors what the generic cleanup does for Email/WhatsApp, using the
+    // adapter's Map instead of the conv-item DOM element.
+    const adapter = window.agentConsoleVoiceAdapter;
+    try {
+        if (adapter) {
+            const voiceInteraction = Array.from(adapter.voiceInteractions?.values() || [])
+                .find(i => i.conversationId == convId);
+            if (voiceInteraction) {
+                adapter.markConversationResolved?.(convId);
+                adapter.stopDurationTimer?.();
+                adapter.voiceInteractions.delete(voiceInteraction.id);
+                if (adapter.activeVoiceInteractionId === voiceInteraction.id) {
+                    adapter.activeVoiceInteractionId = null;
+                }
+                if (adapter.currentInteractionId === voiceInteraction.id) {
+                    adapter.currentInteractionId = null;
+                }
+                adapter.renderTrayInteractions?.();
+                adapter.setMakeCallEnabled?.(adapter.manager?.isReady() || false);
+                window.PreviewDialerAgent?.setVoiceWrapUpPending?.(adapter.hasPendingVoiceWrapUp?.() || false);
+            }
+            adapter.recomputeEffectiveVoiceStatusOverlay?.();
+        }
+    } catch (err) {
+        console.error(err);
+    }
+
+    document.querySelectorAll('.notif-item').forEach(el => {
+        if (el.onclick?.toString().includes(convId)) el.remove();
+    });
+
+    const messagePanel = document.getElementById('messagePanel');
+    if (messagePanel) {
+        messagePanel.innerHTML = `
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--text-muted);">
+            <i class="bi bi-chat-left-text" style="font-size:48px;"></i>
+            <div style="font-size:14px;">Select a conversation to start</div>
+        </div>
+    `;
+    }
+    const leadPanel = document.getElementById('leadPanel');
+    if (leadPanel) {
+        leadPanel.innerHTML = `
+        <div style="padding:40px 20px;text-align:center;color:var(--text-muted);">
+            <i class="bi bi-person-circle" style="font-size:48px;display:block;margin-bottom:8px;"></i>
+            <div style="font-size:13px;">No conversation selected</div>
+        </div>
+    `;
+    }
+}
+
+// ── Lead Panel → public/js/console-lead-panel.js ────────────────────────────
+
+
+let selectedTransferAgentId = null;
+let transferAgentsCache = [];
+
+function showTransferError(msg) {
+    const el = document.getElementById('transferValidationMsg');
+    el.textContent = msg;
+    el.style.display = 'block';
+}
+
+function clearTransferError() {
+    const el = document.getElementById('transferValidationMsg');
+    el.style.display = 'none';
+    el.textContent = '';
+    document.getElementById('transferAgentList').style.border = '';
+    document.getElementById('transferAgentList').style.borderRadius = '';
+}
+
+function renderTransferAgents(agents) {
+    const list = document.getElementById('transferAgentList');
+    if (!agents || agents.length === 0) {
+        list.innerHTML = '<div style="padding:16px;color:var(--text-muted);font-size:13px;text-align:center;">No agents available</div>';
+        return;
+    }
+    list.innerHTML = agents.map(a => `
+        <div id="transfer-agent-${a.id}" onclick="selectTransferAgent(${a.id})"
+             style="padding:4px 14px;cursor:pointer;border-radius:var(--radius-sm);font-size:13px;color:var(--text-strong);display:flex;align-items:center;gap:10px;border:1px solid var(--border);"
+             onmouseover="if(selectedTransferAgentId!=${a.id}) this.style.background='var(--bg-th)'"
+             onmouseout="if(selectedTransferAgentId!=${a.id}) this.style.background=''">
+            <div style="width:32px;height:32px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;">
+                ${a.name.charAt(0).toUpperCase()}
+            </div>
+            <span style="font-size:13px;font-weight:500;">${a.name}</span>
+        </div>
+    `).join('');
+
+    if (selectedTransferAgentId) {
+        const el = document.getElementById(`transfer-agent-${selectedTransferAgentId}`);
+        if (el) { el.style.background = 'var(--primary-light)'; el.style.border = '1px solid var(--primary)'; }
+    }
+}
+
+function filterTransferAgents() {
+    const search = document.getElementById('transferSearch').value.toLowerCase();
+    const filtered = transferAgentsCache.filter(a => a.name.toLowerCase().includes(search));
+    renderTransferAgents(filtered);
+}
+
+async function openTransferModal(convId) {
+    selectedTransferAgentId = null;
+    transferAgentsCache = [];
+    document.getElementById('transferConvId').value = convId;
+    document.getElementById('transferBtn').disabled = false;
+    document.getElementById('transferSearch').value = '';
+    clearTransferError();
+    document.getElementById('transferAgentList').innerHTML =
+        '<div style="padding:12px;color:var(--text-muted);font-size:13px;text-align:center;">Loading...</div>';
+    document.getElementById('transferModal').classList.add('active');
+
+    const resp = await fetch('/console/agents/available');
+    const data = await resp.json();
+    transferAgentsCache = data.agents || [];
+    renderTransferAgents(transferAgentsCache);
+}
+
+function selectTransferAgent(agentId) {
+    clearTransferError();
+    if (selectedTransferAgentId) {
+        const prev = document.getElementById(`transfer-agent-${selectedTransferAgentId}`);
+        if (prev) { prev.style.background = ''; prev.style.border = '1px solid var(--border)'; }
+    }
+    selectedTransferAgentId = agentId;
+    const el = document.getElementById(`transfer-agent-${agentId}`);
+    if (el) { el.style.background = 'var(--primary-light)'; el.style.border = '1px solid var(--primary)'; }
+}
+
+async function submitTransfer() {
+    const convId  = document.getElementById('transferConvId').value;
+    const agentId = selectedTransferAgentId;
+
+    if (!agentId) {
+        showTransferError('Please select an agent to transfer');
+        document.getElementById('transferAgentList').style.border = '1px solid var(--danger)';
+        document.getElementById('transferAgentList').style.borderRadius = 'var(--radius-sm)';
+        return;
+    }
+
+    const btn = document.getElementById('transferBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Transferring...';
+    btn.style.opacity = '0.7';
+
+    const resetBtn = () => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-left-right"></i> Transfer';
+        btn.style.opacity = '1';
+    };
+
+    const checkResp = await fetch('/console/agents/available');
+    const checkData = await checkResp.json();
+    const stillReady = (checkData.agents || []).some(a => a.id === agentId);
+
+    if (!stillReady) {
+        transferAgentsCache = checkData.agents || [];
+        selectedTransferAgentId = null;
+        renderTransferAgents(transferAgentsCache);
+        showTransferError('Agent is no longer available');
+        resetBtn();
+        return;
+    }
+
+    const resp = await fetch(`/console/conversation/${convId}/transfer`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+        },
+        body: JSON.stringify({ agent_id: agentId })
+    });
+
+    const data = await resp.json();
+    if (data.ok) {
+        activeConversationId = null;
+        closeModal('transferModal');
+        showToast('Conversation transferred.', 'success');
+        document.querySelector(`.conv-item[data-id="${convId}"]`)?.remove();
+        document.querySelectorAll('.notif-item').forEach(el => {
+            if (el.onclick?.toString().includes(convId)) el.remove();
+        });
+        pollUnread();
+        document.getElementById('messagePanel').innerHTML = `
+            <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--text-muted);">
+                <i class="bi bi-chat-left-text" style="font-size:48px;"></i>
+                <div style="font-size:14px;">Select a conversation to start</div>
+            </div>
+        `;
+        document.getElementById('leadPanel').innerHTML = `
+            <div style="padding:40px 20px;text-align:center;color:var(--text-muted);">
+                <i class="bi bi-person-circle" style="font-size:48px;display:block;margin-bottom:8px;"></i>
+                <div style="font-size:13px;">No conversation selected</div>
+            </div>
+        `;
+    } else {
+        resetBtn();
+        showToast(data.error || 'Transfer failed', 'error');
+    }
+}
+</script>
+
+@if($voiceCapability['eligible'])
+<script>
+window.getAgentConsoleStatus = function () {
+    return currentStatus;
+};
+window.requestAgentReady = function () {
+    return window.agentConsoleVoiceAdapter.requestReady();
+};
+window.commitAgentReady = function (browserTabId) {
+    return updateAgentStatus(
+        'ready',
+        null,
+        null,
+        null,
+        browserTabId,
+        true
+    );
+};
+window.openAgentVoiceDialer = function () {
+    const action = document.getElementById('voiceMakeCallAction');
+    if (action?.getAttribute('aria-disabled') !== 'false') return;
+    window.agentConsoleVoiceAdapter.openDialer();
+};
+window.agentConsoleVoiceAdapter.init().catch(function () {});
+</script>
+@endif
+
+<audio id="notifAudio" src="/sounds/beep.wav" preload="auto" style="display:none;"></audio>
+
+{{-- ================================================================
+     Pusher / Laravel Echo — tiempo real
+     Los CDN van aquí para no afectar otras páginas del layout.
+     El polling de 30s sigue activo como fallback durante esta fase.
+================================================================ --}}
+<script src="https://js.pusher.com/8.4/pusher.min.js"></script>
+<script>
+(function () {
+    const pusherKey     = '{{ config('broadcasting.connections.pusher.key') }}';
+    const pusherCluster = '{{ config('broadcasting.connections.pusher.options.cluster') }}';
+    const agentId       = {{ auth()->id() }};
+
+    if (!pusherKey || !pusherCluster) {
+        console.warn('[pusher] Missing config — real-time disabled.');
+        return;
+    }
+
+    const pusher  = new Pusher(pusherKey, {
+        cluster:  pusherCluster,
+        forceTLS: true,
+        authEndpoint: '/broadcasting/auth',
+        auth: {
+            headers: {
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+            },
+        },
+    });
+
+    const channel = pusher.subscribe('private-agent.' + agentId);
+
+    channel.bind('pusher:subscription_error', function (err) {
+        console.error('[pusher] subscription error', err);
+    });
+
+    channel.bind('pusher:subscription_succeeded', function () {
+        console.log('[pusher] subscribed to private-agent.' + agentId);
+    });
+
+    // Nueva conversación asignada (o reasignada/reactivada — p.ej. quedó "pending"
+    // reservada mientras el agente estaba offline y AssignConversations la
+    // reactivó al volver a ready) al agente.
+    channel.bind('NewConversationReceived', function (data) {
+        console.log('[pusher] NewConversationReceived', data);
+
+        // Si es la MISMA conversación que el agente ya tiene abierta (típico
+        // tras volver de Offline a Ready con un inbound que llegó mientras
+        // tanto), sincronizar el hilo de inmediato con el mismo fetch seguro
+        // que usa el polling — en vez de solo sonar y esperar a que el
+        // siguiente ciclo de poll (hasta 2 min después) lo pinte. Comparten
+        // _knownMsgIds, así que el poll posterior ya no vuelve a encontrar
+        // estos mismos mensajes como "nuevos" ni duplica el sonido.
+        if (activeConversationId && String(activeConversationId) === String(data.id)) {
+            refreshConversationList();
+            syncActiveConversationThread('pusher:NewConversationReceived').then(function (result) {
+                if (result.newInboundCount > 0) {
+                    playNotifSound('NewConversationReceived');
+                }
+            });
+            return;
+        }
+
+        playNotifSound('NewConversationReceived');
+        refreshConversationList();
+
+        // Actualizar dropdown de notificaciones con los datos del evento
+        // La siguiente llamada a refreshConversationList ya trae el conteo actualizado,
+        // pero forzamos también el endpoint unread para el badge y dropdown.
+        Promise.all([
+            fetch('/console/unread?channel=email').then(r => r.json()),
+            fetch('/console/unread?channel=chat').then(r => r.json()),
+        ]).then(function([emailData, chatData]) {
+            const emailConvs = emailData.conversations || [];
+            const chatConvs  = chatData.conversations  || [];
+            lastUnreadCount  = emailConvs.length + chatConvs.length;
+
+            // Badge email
+            const notifBtn = document.getElementById('notifBtn');
+            let emailBadge = document.getElementById('emailBadge');
+            if (emailConvs.length > 0) {
+                if (!emailBadge) {
+                    emailBadge = document.createElement('span');
+                    emailBadge.id = 'emailBadge';
+                    emailBadge.style.cssText = 'position:absolute;top:-2px;right:-2px;width:16px;height:16px;background:var(--danger);border-radius:50%;font-size:9px;font-weight:700;color:white;display:flex;align-items:center;justify-content:center;';
+                    notifBtn.appendChild(emailBadge);
+                }
+                emailBadge.textContent = emailConvs.length;
+            } else {
+                emailBadge?.remove();
+            }
+
+            // Badge chat
+            updateWaBadge(chatConvs.length);
+
+            // Dropdowns solo si están abiertos
+            if (document.getElementById('notifDropdown')?.style.display !== 'none') {
+                updateNotifDropdown(emailConvs);
+            }
+            if (document.getElementById('notifWaDropdown')?.style.display !== 'none') {
+                updateWaNotifDropdown(chatConvs);
+            }
+        }).catch(function(err) { console.error('[pusher] unread fetch error', err); });
+    });
+
+    // Nuevo mensaje en una conversación activa del agente
+    channel.bind('NewMessageReceived', function (data) {
+        // activeConversationId puede llegar como number (el onclick de la lista
+        // en Blade inserta el id literal, sin comillas) o como string (fetch().json() de un
+        // conversation_id que MySQL con emulated prepares hidrata como string en
+        // algunos SELECTs) — Conversation::$casts ya fuerza int en el modelo,
+        // pero esta comparación se deja con String() como defensa adicional,
+        // no solo aquí sino para cualquier otro canal (WhatsApp/chat) que use
+        // este mismo handler.
+
+        // Si el agente tiene abierta esta conversación, agregar el mensaje al thread
+        if (activeConversationId && String(activeConversationId) === String(data.conversation_id)) {
+            refreshConversationList();
+            fetch('/console/conversation/' + data.conversation_id)
+                .then(r => r.json())
+                .then(function (conv) {
+                    const thread   = document.getElementById('messageThread');
+                    const chatArea = document.getElementById('waChatArea');
+                    if (!thread && !chatArea) return;
+
+                    const newMessages = conv.messages.filter(m => !_knownMsgIds.has(Number(m.id)));
+                    if (newMessages.length === 0) return;
+
+                    newMessages
+                        .sort((a, b) => new Date(a.sent_at_iso) - new Date(b.sent_at_iso))
+                        .forEach(function (m) {
+                            _knownMsgIds.add(Number(m.id));
+                            if (chatArea) {
+                                _waAppendMessage(chatArea, m);
+                            } else {
+                                thread.insertAdjacentHTML('afterbegin', renderMessage(m));
+                            }
+                        });
+
+                    if (chatArea) {
+                        chatArea.scrollTop = chatArea.scrollHeight;
+                    } else {
+                        thread.scrollTop = 0;
+                    }
+                    playNotifSound('NewMessageReceived');
+
+                    fetch('/console/conversation/' + data.conversation_id + '/read', {
+                        method: 'PATCH',
+                        headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
+                    });
+                })
+                .catch(function (err) { console.error('[pusher] conversation fetch error', err); });
+        } else {
+            // Conv no está abierta — actualizar lista y badge
+            playNotifSound('NewMessageReceived');
+            refreshConversationList();
+            Promise.all([
+                fetch('/console/unread?channel=email').then(r => r.json()),
+                fetch('/console/unread?channel=chat').then(r => r.json()),
+            ]).then(function([emailData, chatData]) {
+                const emailConvs = emailData.conversations || [];
+                const chatConvs  = chatData.conversations  || [];
+                lastUnreadCount  = emailConvs.length + chatConvs.length;
+
+                // Badge email
+                const notifBtn = document.getElementById('notifBtn');
+                let emailBadge = document.getElementById('emailBadge');
+                if (emailConvs.length > 0) {
+                    if (!emailBadge) {
+                        emailBadge = document.createElement('span');
+                        emailBadge.id = 'emailBadge';
+                        emailBadge.style.cssText = 'position:absolute;top:-2px;right:-2px;width:16px;height:16px;background:var(--danger);border-radius:50%;font-size:9px;font-weight:700;color:white;display:flex;align-items:center;justify-content:center;';
+                        notifBtn.appendChild(emailBadge);
+                    }
+                    emailBadge.textContent = emailConvs.length;
+                } else {
+                    emailBadge?.remove();
+                }
+
+                // Badge chat
+                updateWaBadge(chatConvs.length);
+
+                // Dropdowns solo si están abiertos
+                if (document.getElementById('notifDropdown')?.style.display !== 'none') {
+                    updateNotifDropdown(emailConvs);
+                }
+                if (document.getElementById('notifWaDropdown')?.style.display !== 'none') {
+                    updateWaNotifDropdown(chatConvs);
+                }
+            }).catch(function(err) { console.error('[pusher] unread fetch error', err); });
+        }
+    });
+
+    pusher.connection.bind('error', function (err) {
+        console.error('[pusher] connection error', err);
+    });
+
+    pusher.connection.bind('disconnected', function () {
+        console.warn('[pusher] disconnected — polling fallback active');
+    });
+
+    pusher.connection.bind('connected', function () {
+        console.log('[pusher] connected');
+    });
+})();
+
+// ── Emoji Picker ──────────────────────────────────────────────────────────────
+let _emojiPickerEl = null;
+
+function toggleEmojiPicker(event) {
+    event.stopPropagation();
+    const btn = document.getElementById('emojiPickerBtn');
+    if (!btn) return;
+
+    if (!_emojiPickerEl) {
+        _emojiPickerEl = document.createElement('div');
+        _emojiPickerEl.style.cssText = 'position:fixed;z-index:9999;display:none;';
+        _emojiPickerEl.addEventListener('click', e => e.stopPropagation());
+        document.body.appendChild(_emojiPickerEl);
+
+        const picker = new EmojiMart.Picker({
+            data: () => fetch('{{ url("/webchat/emoji-data") }}').then(r => r.json()),
+            onEmojiSelect: function (emoji) {
+                const ta = document.getElementById('waReplyBody');
+                if (ta) {
+                    const s = ta.selectionStart, e2 = ta.selectionEnd;
+                    ta.value = ta.value.slice(0, s) + emoji.native + ta.value.slice(e2);
+                    ta.selectionStart = ta.selectionEnd = s + emoji.native.length;
+                    ta.dispatchEvent(new Event('input'));
+                    ta.focus();
+                }
+                closeEmojiPicker();
+            },
+            theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light',
+            locale: 'en',
+            set: 'native',
+            autoFocus: true,
+            navPosition: 'none',
+            previewPosition: 'none',
+            searchPosition: 'top',
+            skinTonePosition: 'none',
+            emojiVersion: '15',
+        });
+        _emojiPickerEl.appendChild(picker);
+    }
+
+    if (_emojiPickerEl.style.display !== 'none') { closeEmojiPicker(); return; }
+
+    _emojiPickerEl.style.display = 'block';
+    const rect    = btn.getBoundingClientRect();
+    const pickerH = _emojiPickerEl.offsetHeight || 380;
+    const pickerW = _emojiPickerEl.offsetWidth  || 352;
+    let top  = rect.top - pickerH - 8;
+    let left = rect.left;
+    if (top < 8) top = rect.bottom + 8;
+    if (left + pickerW > window.innerWidth - 8) left = window.innerWidth - pickerW - 8;
+    _emojiPickerEl.style.top  = top  + 'px';
+    _emojiPickerEl.style.left = left + 'px';
+}
+
+function closeEmojiPicker() {
+    if (_emojiPickerEl) _emojiPickerEl.style.display = 'none';
+}
+
+document.addEventListener('click', closeEmojiPicker);
+// ─────────────────────────────────────────────────────────────────────────────
+</script>
+
+@endpush

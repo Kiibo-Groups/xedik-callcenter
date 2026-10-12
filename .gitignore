@@ -1,0 +1,72 @@
+# ── Environment & Secrets ──
+.env
+.env.backup
+.env.production
+.env.*.local
+*.env
+
+# ── Composer & Dependencies ──
+/vendor/
+composer.phar
+
+# ── Node & Frontend Assets ──
+/node_modules/
+/public/build/
+/public/hot
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Laravel Storage & Framework Caches ──
+/storage/*.key
+/storage/app/*
+!/storage/app/.gitignore
+!/storage/app/public/
+/storage/app/public/*
+!/storage/app/public/.gitignore
+/storage/framework/cache/*
+!/storage/framework/cache/.gitignore
+/storage/framework/sessions/*
+!/storage/framework/sessions/.gitignore
+/storage/framework/testing/*
+!/storage/framework/testing/.gitignore
+/storage/framework/views/*
+!/storage/framework/views/.gitignore
+/storage/logs/*
+!/storage/logs/.gitignore
+/public/storage
+
+# ── Database & Backup Dumps ──
+*.sql
+*.sqlite
+*.sqlite3
+*.db
+/database/*.sqlite
+
+# ── Temporary & Backup Files ──
+*.bak
+*.bak-*
+*.tmp
+*.temp
+*~
+*.swp
+*.swo
+
+# ── Testing & IDEs ──
+.phpunit.result.cache
+.phpunit.cache/
+.phpintel/
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# ── OS Generated Files ──
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
