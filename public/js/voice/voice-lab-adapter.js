@@ -354,7 +354,7 @@
             if (!result.isConfirmed) return;
 
             try {
-                await this.manager.takeOver();
+                await this.manager.takeOver(true);
                 await this.manager.waitUntilReady();
             } catch (error) {
                 this.log('Takeover error', {
