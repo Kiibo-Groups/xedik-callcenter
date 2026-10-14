@@ -64,11 +64,11 @@ class ItsaarTenantSeeder extends Seeder
 
         $this->command->info("Roles creados: admin={$adminRoleId}, agent={$agentRoleId}");
 
-        // 3. Crear usuario Admin ITSAAR (jorge.zambada@itsaar.com.mx)
+        // 3. Crear usuario Admin ITSAAR (conexion@kiibo.mx)
         // IMPORTANTE: cambiar la contraseña después del primer login
         $userId = DB::table('users')->insertGetId([
             'name'              => 'Jorge Zambada',
-            'email'             => 'jorge.zambada@itsaar.com.mx',
+            'email'             => 'conexion@kiibo.mx',
             'password'          => Hash::make('Itsaar2026!'),
             'tenant_id'         => $tenantId,
             'role_id'           => $adminRoleId,
@@ -78,11 +78,11 @@ class ItsaarTenantSeeder extends Seeder
             'updated_at'        => $now,
         ]);
 
-        $this->command->info("Usuario jorge.zambada@itsaar.com.mx creado (id={$userId})");
+        $this->command->info("Usuario conexion@kiibo.mx creado (id={$userId})");
         $this->command->warn('⚠️  Contraseña temporal: Itsaar2026! — cámbiala después del primer login');
         $this->command->line('');
         $this->command->line('Próximos pasos:');
-        $this->command->line('  1. Login con jorge.zambada@itsaar.com.mx / Itsaar2026!');
+        $this->command->line('  1. Login con conexion@kiibo.mx / Itsaar2026!');
         $this->command->line('  2. Configurar WhatsApp Account en Admin → WhatsApp Accounts');
         $this->command->line('  3. Cambiar contraseña');
     }
