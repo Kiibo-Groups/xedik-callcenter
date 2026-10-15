@@ -92,6 +92,8 @@ Route::middleware('auth')->group(function () {
     // Leads
     Route::get('/leads',                          [LeadController::class, 'index'])->name('leads.index')->middleware('permission:view_all_leads');
     Route::get('/leads/my',                       [LeadController::class, 'myLeads'])->name('leads.my')->middleware('permission:view_my_leads');
+    Route::get('/leads/create',                   [LeadController::class, 'create'])->name('leads.create');
+    Route::post('/leads',                         [LeadController::class, 'store'])->name('leads.store');
     Route::get('/leads/thread/{reportId}',        [LeadController::class, 'conversationThread'])->name('leads.conversationThread');
     Route::get('/leads/{lead}',                   [LeadController::class, 'show'])->name('leads.show');
     Route::patch('/leads/{lead}',    [LeadController::class, 'update'])->name('leads.update');

@@ -126,6 +126,54 @@ class LeadController extends Controller
             'totalLeads', 'newLeads', 'closedWon', 'scheduled', 'pageTitle', 'filterRoute', 'isSuperAdmin'));
     }
 
+    public function create()
+    {
+        $user = Auth::user();
+        $statuses  = LeadStatus::where('is_active', true)->orderBy('sort_order')->get();
+        $sources   = LeadSource::where('is_active', true)->orderBy('sort_order')->get();
+        $agents    = $user->isAdmin() ? User::whereHas('role', fn($q) => $q->where('name', 'agent'))->orderBy('name')->get() : collect();
+        $campaigns = $user->isAdmin()
+            ? Campaign::where('is_active', true)->orderBy('name')->get()
+            : $user->campaigns()->where('is_active', true)->orderBy('name')->get();
+
+        return view('leads.create', compact('statuses', 'sources', 'agents', 'campaigns'));
+    }
+
+    public function store(Request $request)
+    {
+        $user = Auth::user();
+
+        $validated = $request->validate([
+            'first_name'  => 'required|string|max:100',
+            'last_name'   => 'required|string|max:100',
+            'email'       => 'nullable|email|max:150',
+            'phone'       => 'nullable|string|max:30',
+            'phone_2'     => 'nullable|string|max:30',
+            'address'     => 'nullable|string|max:255',
+            'city'        => 'nullable|string|max:100',
+            'state'       => 'nullable|string|max:100',
+            'zip'         => 'nullable|string|max:20',
+            'country'     => 'nullable|string|max:100',
+            'source'      => 'nullable|string|max:100',
+            'notes'       => 'nullable|string',
+            'status'      => 'required|string',
+            'value'       => 'nullable|numeric|min:0',
+            'assigned_to' => 'nullable|exists:users,id',
+            'campaign_id' => 'nullable|exists:campaigns,id',
+        ]);
+
+        if (!$user->isAdmin()) {
+            $validated['assigned_to'] = $user->id;
+        }
+
+        $validated['tenant_id'] = $user->tenant_id;
+
+        $lead = Lead::create($validated);
+
+        return redirect()->route('leads.show', $lead)
+            ->with('success', 'Lead created successfully.');
+    }
+
     public function show(Lead $lead)
     {
         $user = Auth::user();

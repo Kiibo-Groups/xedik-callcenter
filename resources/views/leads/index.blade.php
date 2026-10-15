@@ -5,11 +5,16 @@
 @section('page-subtitle', $leads->total() . ' total leads')
 
 @section('header-actions')
-    @if(Auth::user()->isAdmin())
-        <button class="btn btn-primary btn-sm">
-            <i class="bi bi-upload"></i> Import
-        </button>
-    @endif
+    <div style="display:flex;align-items:center;gap:8px;">
+        @if(Auth::user()->isAdmin() || Auth::user()->hasPermission('manage_lead_lists'))
+            <a href="{{ route('lead-lists.index') }}" class="btn btn-secondary btn-sm" title="Importar listas o base de datos CSV">
+                <i class="bi bi-upload"></i> Import List
+            </a>
+        @endif
+        <a href="{{ route('leads.create') }}" class="btn btn-primary btn-sm">
+            <i class="bi bi-plus-lg"></i> New Lead
+        </a>
+    </div>
 @endsection
 
 @section('content')
