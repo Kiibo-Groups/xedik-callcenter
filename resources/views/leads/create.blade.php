@@ -167,14 +167,27 @@
                         </select>
                     </div>
 
-                    @if(Auth::user()->isAdmin())
+                    @if(isset($isSuperAdmin) && $isSuperAdmin && isset($tenants) && $tenants->isNotEmpty())
+                    <div class="form-group">
+                        <label class="form-label">Company / Tenant *</label>
+                        <select name="tenant_id" class="form-control" required>
+                            @foreach($tenants as $t)
+                                <option value="{{ $t->id }}" {{ old('tenant_id', 2) == $t->id ? 'selected' : '' }}>
+                                    {{ $t->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+                    @endif
+
+                    @if(Auth::user()->isAdmin() || (isset($isSuperAdmin) && $isSuperAdmin))
                     <div class="form-group">
                         <label class="form-label">Assigned Agent</label>
                         <select name="assigned_to" class="form-control">
                             <option value="">— Unassigned —</option>
                             @foreach($agents as $agent)
                                 <option value="{{ $agent->id }}"
-                                    {{ old('assigned_to', Auth::id()) == $agent->id ? 'selected' : '' }}>
+                                    {{ old('assigned_to') == $agent->id ? 'selected' : '' }}>
                                     {{ $agent->name }}
                                 </option>
                             @endforeach

@@ -15,9 +15,10 @@ class LeadController extends Controller
     public function index(Request $request)
     {
         $user         = Auth::user();
-        $isSuperAdmin = $user->is_superadmin;
+        $isSuperAdmin = (bool) $user->is_superadmin;
+        $isAdmin      = $user->isAdmin() || $isSuperAdmin;
 
-        $campaigns = $user->isAdmin()
+        $campaigns = $isAdmin
             ? Campaign::where('is_active', true)->orderBy('name')->get()
             : $user->campaigns()->where('is_active', true)->orderBy('name')->get();
 
@@ -25,7 +26,7 @@ class LeadController extends Controller
             ->when($isSuperAdmin, fn($q) => $q->with('tenant'))
             ->orderBy('updated_at', 'desc');
 
-        if (!$user->isAdmin()) {
+        if (!$isAdmin) {
             $campaignIds = $campaigns->pluck('id');
             $query->where(function($q) use ($campaignIds, $user) {
                 $q->whereIn('campaign_id', $campaignIds)
@@ -52,24 +53,24 @@ class LeadController extends Controller
             $query->where('campaign_id', $campaignId);
         }
 
-        if ($user->isAdmin() && $agentId = $request->get('agent_id')) {
+        if ($isAdmin && $agentId = $request->get('agent_id')) {
             $query->where('assigned_to', $agentId);
         }
 
         $leads    = $query->paginate(25)->withQueryString();
-        $statuses = LeadStatus::where('is_active', true)->orderBy('sort_order')->get();
-        $agents   = $user->isAdmin() ? User::whereHas('role', fn($q) => $q->where('name', 'agent'))->orderBy('name')->get() : collect();
+        $statuses = LeadStatus::where('is_active', true)->orderBy('order')->get()->unique('slug');
+        $agents   = $isAdmin ? User::where('is_active', true)->orderBy('name')->get() : collect();
 
         // Stats filtrados por campaña del agente
         $statsQuery = Lead::query();
-        if (!$user->isAdmin()) {
+        if (!$isAdmin) {
             $statsQuery->whereIn('campaign_id', $campaigns->pluck('id'));
         }
         $totalLeads = (clone $statsQuery)->count();
         $newLeads   = (clone $statsQuery)->where('status', 'new')->count();
         $closedWon  = (clone $statsQuery)->where('status', 'closed_won')->count();
         $scheduled  = \App\Models\Call::where('is_scheduled', true)->where('completed', false)
-            ->when(!$user->isAdmin(), function($q) use ($campaigns) {
+            ->when(!$isAdmin, function($q) use ($campaigns) {
                 $q->whereHas('lead', fn($l) => $l->whereIn('campaign_id', $campaigns->pluck('id')));
             })->count();
 
@@ -129,21 +130,26 @@ class LeadController extends Controller
     public function create()
     {
         $user = Auth::user();
-        $statuses  = LeadStatus::where('is_active', true)->orderBy('sort_order')->get();
-        $sources   = LeadSource::where('is_active', true)->orderBy('sort_order')->get();
-        $agents    = $user->isAdmin() ? User::whereHas('role', fn($q) => $q->where('name', 'agent'))->orderBy('name')->get() : collect();
-        $campaigns = $user->isAdmin()
+        $isSuperAdmin = $user->isSuperAdmin();
+        $isAdmin = $user->isAdmin() || $isSuperAdmin;
+
+        $statuses  = LeadStatus::where('is_active', true)->orderBy('order')->get()->unique('slug');
+        $sources   = LeadSource::where('is_active', true)->orderBy('order')->get()->unique('name');
+        $agents    = $isAdmin ? User::where('is_active', true)->orderBy('name')->get() : collect();
+        $campaigns = $isAdmin
             ? Campaign::where('is_active', true)->orderBy('name')->get()
             : $user->campaigns()->where('is_active', true)->orderBy('name')->get();
+        $tenants   = $isSuperAdmin ? \App\Models\Tenant::where('is_active', true)->orderBy('name')->get() : collect();
 
-        return view('leads.create', compact('statuses', 'sources', 'agents', 'campaigns'));
+        return view('leads.create', compact('statuses', 'sources', 'agents', 'campaigns', 'tenants', 'isSuperAdmin'));
     }
 
     public function store(Request $request)
     {
         $user = Auth::user();
+        $isSuperAdmin = $user->isSuperAdmin();
 
-        $validated = $request->validate([
+        $rules = [
             'first_name'  => 'required|string|max:100',
             'last_name'   => 'required|string|max:100',
             'email'       => 'nullable|email|max:150',
@@ -160,13 +166,37 @@ class LeadController extends Controller
             'value'       => 'nullable|numeric|min:0',
             'assigned_to' => 'nullable|exists:users,id',
             'campaign_id' => 'nullable|exists:campaigns,id',
-        ]);
+        ];
 
-        if (!$user->isAdmin()) {
+        if ($isSuperAdmin) {
+            $rules['tenant_id'] = 'nullable|exists:tenants,id';
+        }
+
+        $validated = $request->validate($rules);
+
+        if (!$user->isAdmin() && !$isSuperAdmin) {
             $validated['assigned_to'] = $user->id;
         }
 
-        $validated['tenant_id'] = $user->tenant_id;
+        // Determine tenant_id
+        $tenantId = $user->tenant_id;
+        if (empty($tenantId)) {
+            if (!empty($validated['tenant_id'])) {
+                $tenantId = (int) $validated['tenant_id'];
+            } elseif (!empty($validated['campaign_id'])) {
+                $campaign = Campaign::withoutGlobalScopes()->find($validated['campaign_id']);
+                $tenantId = $campaign?->tenant_id;
+            } elseif (!empty($validated['assigned_to'])) {
+                $assignedUser = User::find($validated['assigned_to']);
+                $tenantId = $assignedUser?->tenant_id;
+            }
+
+            if (empty($tenantId)) {
+                $tenantId = \App\Models\Tenant::where('is_active', true)->value('id') ?? 2;
+            }
+        }
+
+        $validated['tenant_id'] = $tenantId;
 
         $lead = Lead::create($validated);
 
@@ -177,8 +207,9 @@ class LeadController extends Controller
     public function show(Lead $lead)
     {
         $user = Auth::user();
+        $isAdmin = $user->isAdmin() || $user->isSuperAdmin();
 
-        if (!$user->isAdmin()) {
+        if (!$isAdmin) {
             $campaignIds = $user->campaigns()->pluck('campaigns.id');
             $canAccess = $lead->assigned_to === $user->id
                 || ($lead->campaign_id && $campaignIds->contains($lead->campaign_id));
@@ -186,9 +217,9 @@ class LeadController extends Controller
         }
 
         $lead->load(['agent', 'campaign', 'calls.agent']);
-        $statuses = LeadStatus::where('is_active', true)->orderBy('sort_order')->get();
-        $agents   = $user->isAdmin()
-            ? User::whereHas('role', fn($q) => $q->where('name', 'agent'))->orderBy('name')->get()
+        $statuses = LeadStatus::where('is_active', true)->orderBy('order')->get()->unique('slug');
+        $agents   = $isAdmin
+            ? User::where('is_active', true)->orderBy('name')->get()
             : collect();
 
         $convItems = \App\Models\ConversationReport::withoutGlobalScope(\App\Models\Scopes\TenantScope::class)
@@ -292,18 +323,19 @@ class LeadController extends Controller
     public function edit(Lead $lead)
     {
         $user = Auth::user();
+        $isAdmin = $user->isAdmin() || $user->isSuperAdmin();
 
-        if (!$user->isAdmin()) {
+        if (!$isAdmin) {
             $campaignIds = $user->campaigns()->pluck('campaigns.id');
             $canAccess = $lead->assigned_to === $user->id
                 || ($lead->campaign_id && $campaignIds->contains($lead->campaign_id));
             abort_unless($canAccess, 403);
         }
 
-        $statuses  = LeadStatus::where('is_active', true)->orderBy('sort_order')->get();
-        $sources   = LeadSource::where('is_active', true)->orderBy('sort_order')->get();
-        $agents    = $user->isAdmin() ? User::whereHas('role', fn($q) => $q->where('name', 'agent'))->orderBy('name')->get() : collect();
-        $campaigns = $user->isAdmin()
+        $statuses  = LeadStatus::where('is_active', true)->orderBy('order')->get()->unique('slug');
+        $sources   = LeadSource::where('is_active', true)->orderBy('order')->get()->unique('name');
+        $agents    = $isAdmin ? User::where('is_active', true)->orderBy('name')->get() : collect();
+        $campaigns = $isAdmin
             ? Campaign::where('is_active', true)->orderBy('name')->get()
             : $user->campaigns()->where('is_active', true)->orderBy('name')->get();
 
@@ -313,8 +345,9 @@ class LeadController extends Controller
     public function fullUpdate(Request $request, Lead $lead)
     {
         $user = Auth::user();
+        $isAdmin = $user->isAdmin() || $user->isSuperAdmin();
 
-        if (!$user->isAdmin()) {
+        if (!$isAdmin) {
             $campaignIds = $user->campaigns()->pluck('campaigns.id');
             $canAccess = $lead->assigned_to === $user->id
                 || ($lead->campaign_id && $campaignIds->contains($lead->campaign_id));
@@ -340,7 +373,7 @@ class LeadController extends Controller
             'campaign_id' => 'nullable|exists:campaigns,id',
         ]);
 
-        if (!$user->isAdmin()) {
+        if (!$isAdmin) {
             unset($validated['assigned_to']);
         }
 
@@ -370,7 +403,8 @@ class LeadController extends Controller
 
     public function destroy(Lead $lead)
     {
-        abort_unless(Auth::user()->isAdmin() || $lead->assigned_to === Auth::id(), 403);
+        $user = Auth::user();
+        abort_unless($user->isAdmin() || $user->isSuperAdmin() || $lead->assigned_to === $user->id, 403);
         $lead->calls()->delete();
         $lead->delete();
         return redirect()->route('leads.index')->with('success', 'Lead deleted successfully.');
