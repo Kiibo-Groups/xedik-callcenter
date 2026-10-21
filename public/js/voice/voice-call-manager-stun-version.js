@@ -604,7 +604,20 @@
         }
 
         attachRemoteAudio(session) {
-            this.bindPeerConnection(session?.connection);
+            const pc = session?.connection;
+            if (!pc) return;
+            this.bindPeerConnection(pc);
+
+            try {
+                const receivers = pc.getReceivers?.() || [];
+                const audioReceiver = receivers.find(r => r.track && r.track.kind === 'audio');
+                if (audioReceiver && audioReceiver.track) {
+                    const stream = new MediaStream([audioReceiver.track]);
+                    this.attachRemoteStream(stream);
+                }
+            } catch (err) {
+                // Ignore receiver inspection error
+            }
         }
 
         bindPeerConnection(peerConnection) {
@@ -624,12 +637,17 @@
         }
 
         attachRemoteStream(stream) {
-            if (!stream || !this.remoteAudio
-                || this.remoteAudio.srcObject === stream) {
+            if (!stream || !this.remoteAudio) {
+                return;
+            }
+
+            if (this.remoteAudio.srcObject === stream && !this.remoteAudio.paused) {
                 return;
             }
 
             this.remoteAudio.srcObject = stream;
+            this.remoteAudio.muted = false;
+            this.remoteAudio.volume = 1.0;
             const play = this.remoteAudio.play();
 
             play?.catch(error => {
