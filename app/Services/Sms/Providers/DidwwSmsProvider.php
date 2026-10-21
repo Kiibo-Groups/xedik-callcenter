@@ -74,22 +74,24 @@ class DidwwSmsProvider implements SmsProviderInterface
 
     public function parseInbound(array $payload, ?SmsProviderAccount $account = null): InboundSmsMessage
     {
-        $to   = (string) ($payload['to'] ?? '');
-        $from = (string) ($payload['from'] ?? '');
+        $to   = (string) ($payload['to'] ?? $payload['SMS_DST_ADDR'] ?? '');
+        $from = (string) ($payload['from'] ?? $payload['SMS_SRC_ADDR'] ?? '');
 
-        $receivedAt = !empty($payload['received_at'])
-            ? Carbon::parse($payload['received_at'])->utc()
+        $receivedAtRaw = $payload['received_at'] ?? $payload['SMS_TIME'] ?? null;
+        $receivedAt = !empty($receivedAtRaw)
+            ? Carbon::parse($receivedAtRaw)->utc()
             : Carbon::now('UTC');
 
         $body = null;
-        if (!empty($payload['message_base64'])) {
-            $decoded = base64_decode((string) $payload['message_base64'], true);
+        $base64 = $payload['message_base64'] ?? $payload['SMS_TEXT_BASE64_ENCODED'] ?? null;
+        if (!empty($base64)) {
+            $decoded = base64_decode((string) $base64, true);
             if ($decoded !== false) {
                 $body = $decoded;
             }
         }
         if ($body === null) {
-            $body = (string) ($payload['message'] ?? '');
+            $body = (string) ($payload['message'] ?? $payload['SMS_TEXT'] ?? '');
         }
 
         // DIDWW no entrega un id único para mensajes inbound — se genera un hash
