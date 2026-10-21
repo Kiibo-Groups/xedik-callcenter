@@ -33,7 +33,7 @@ class WhatsappAccountController extends Controller
     {
         abort_unless(auth()->user()->hasPermission('manage_whatsapp_accounts'), 403);
         $data = $this->validated($request);
-        $data['tenant_id'] = auth()->user()->tenant_id;
+        $data['tenant_id'] = auth()->user()->tenant_id ?? session('tenant_id') ?? 2;
 
         WhatsappAccount::create($data);
 
