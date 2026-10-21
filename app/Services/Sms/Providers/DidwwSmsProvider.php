@@ -48,6 +48,11 @@ class DidwwSmsProvider implements SmsProviderInterface
         try {
             $response = Http::withBasicAuth($username, $password)
                 ->withHeaders(['Content-Type' => 'application/vnd.api+json'])
+                ->withOptions([
+                    'curl' => [
+                        CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4,
+                    ],
+                ])
                 ->timeout(15)
                 ->post($outboundUrl, [
                     'data' => [
