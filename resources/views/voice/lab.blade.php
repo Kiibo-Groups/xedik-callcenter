@@ -644,10 +644,10 @@
 
 @push('scripts')
 <script src="{{ asset('js/voice/jssip.min.js') }}"></script>
-<script src="{{ asset('js/voice/voice-api-client.js') }}"></script>
-<script src="{{ asset('js/voice/voice-call-manager.js') }}"></script>
-<script src="{{ asset('js/voice/voice-session-manager.js') }}"></script>
-<script src="{{ asset('js/voice/voice-lab-adapter.js') }}"></script>
+<script src="{{ asset('js/voice/voice-api-client.js') }}?v={{ filemtime(public_path('js/voice/voice-api-client.js')) }}"></script>
+<script src="{{ asset('js/voice/voice-call-manager.js') }}?v={{ filemtime(public_path('js/voice/voice-call-manager.js')) }}"></script>
+<script src="{{ asset('js/voice/voice-session-manager.js') }}?v={{ filemtime(public_path('js/voice/voice-session-manager.js')) }}"></script>
+<script src="{{ asset('js/voice/voice-lab-adapter.js') }}?v={{ filemtime(public_path('js/voice/voice-lab-adapter.js')) }}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     window.voiceLabAdapter = new window.xedikVoice.VoiceLabAdapter({
