@@ -148,6 +148,12 @@
 
             this.pendingOutboundAttemptId = attemptId;
             try {
+                if (this.remoteAudio) {
+                    this.remoteAudio.muted = false;
+                    this.remoteAudio.volume = 1.0;
+                    this.remoteAudio.play().catch(() => {});
+                }
+
                 return ua.call(target, {
                     mediaConstraints: {
                         audio: true,
@@ -447,6 +453,13 @@
             this.log('Answering incoming call');
             this.stopTones();
             this.inboundPending = false;
+
+            if (this.remoteAudio) {
+                this.remoteAudio.muted = false;
+                this.remoteAudio.volume = 1.0;
+                this.remoteAudio.play().catch(() => {});
+            }
+
             session.answer({
                 mediaConstraints: {
                     audio: true,
@@ -656,19 +669,30 @@
         }
 
         bindPeerConnection(peerConnection) {
-            if (!peerConnection
-                || this.boundPeerConnections.has(peerConnection)) {
+            if (!peerConnection) {
                 return;
             }
 
-            this.boundPeerConnections.add(peerConnection);
-            peerConnection.addEventListener?.('track', event => {
-                const stream = event?.streams?.[0] || (event.track ? new MediaStream([event.track]) : null);
-                this.attachRemoteStream(stream);
-            });
-            peerConnection.addEventListener?.('addstream', event => {
-                this.attachRemoteStream(event?.stream);
-            });
+            if (!this.boundPeerConnections.has(peerConnection)) {
+                this.boundPeerConnections.add(peerConnection);
+                peerConnection.addEventListener?.('track', event => {
+                    const stream = event?.streams?.[0] || (event.track ? new MediaStream([event.track]) : null);
+                    this.attachRemoteStream(stream);
+                });
+                peerConnection.addEventListener?.('addstream', event => {
+                    this.attachRemoteStream(event?.stream);
+                });
+            }
+
+            try {
+                const receivers = peerConnection.getReceivers?.() || [];
+                const audioReceiver = receivers.find(r => r.track && r.track.kind === 'audio');
+                if (audioReceiver && audioReceiver.track) {
+                    this.attachRemoteStream(new MediaStream([audioReceiver.track]));
+                }
+            } catch (err) {
+                // Ignore receiver inspection error
+            }
         }
 
         attachRemoteStream(stream) {

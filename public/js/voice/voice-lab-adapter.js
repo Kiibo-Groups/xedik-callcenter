@@ -237,6 +237,11 @@
                 }
             });
             this.elements.answer.addEventListener('click', () => {
+                if (this.elements.remoteAudio) {
+                    this.elements.remoteAudio.muted = false;
+                    this.elements.remoteAudio.volume = 1.0;
+                    this.elements.remoteAudio.play().catch(() => {});
+                }
                 this.runCallAction('Answer error', () =>
                     this.manager.callManager.answer()
                 );
