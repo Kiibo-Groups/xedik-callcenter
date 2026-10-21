@@ -1717,7 +1717,7 @@ document.addEventListener('DOMContentLoaded', () => {
             boundPeerConnections.add(peerConnection);
 
             peerConnection.addEventListener('track', event => {
-                attachRemoteStream(event.streams?.[0] ?? null);
+                attachRemoteStream(event.streams?.[0] || (event.track ? new MediaStream([event.track]) : null));
             });
 
             peerConnection.addEventListener('addstream', event => {

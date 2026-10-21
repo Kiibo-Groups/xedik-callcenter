@@ -615,7 +615,8 @@
 
             this.boundPeerConnections.add(peerConnection);
             peerConnection.addEventListener?.('track', event => {
-                this.attachRemoteStream(event?.streams?.[0]);
+                const stream = event?.streams?.[0] || (event.track ? new MediaStream([event.track]) : null);
+                this.attachRemoteStream(stream);
             });
             peerConnection.addEventListener?.('addstream', event => {
                 this.attachRemoteStream(event?.stream);
