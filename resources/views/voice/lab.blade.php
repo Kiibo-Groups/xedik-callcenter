@@ -1665,11 +1665,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (elements.remoteAudio.srcObject) {
+        if (elements.remoteAudio.srcObject === stream && !elements.remoteAudio.paused) {
             return;
         }
 
         elements.remoteAudio.srcObject = stream;
+        elements.remoteAudio.muted = false;
+        elements.remoteAudio.volume = 1.0;
 
         try {
             const playPromise = elements.remoteAudio.play();
@@ -1709,20 +1711,31 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const bindPeerConnection = peerConnection => {
-            if (!peerConnection
-                || boundPeerConnections.has(peerConnection)) {
+            if (!peerConnection) {
                 return;
             }
 
-            boundPeerConnections.add(peerConnection);
+            if (!boundPeerConnections.has(peerConnection)) {
+                boundPeerConnections.add(peerConnection);
 
-            peerConnection.addEventListener('track', event => {
-                attachRemoteStream(event.streams?.[0] || (event.track ? new MediaStream([event.track]) : null));
-            });
+                peerConnection.addEventListener('track', event => {
+                    attachRemoteStream(event.streams?.[0] || (event.track ? new MediaStream([event.track]) : null));
+                });
 
-            peerConnection.addEventListener('addstream', event => {
-                attachRemoteStream(event.stream ?? null);
-            });
+                peerConnection.addEventListener('addstream', event => {
+                    attachRemoteStream(event.stream ?? null);
+                });
+            }
+
+            try {
+                const receivers = peerConnection.getReceivers?.() || [];
+                const audioReceiver = receivers.find(r => r.track && r.track.kind === 'audio');
+                if (audioReceiver && audioReceiver.track) {
+                    attachRemoteStream(new MediaStream([audioReceiver.track]));
+                }
+            } catch (err) {
+                // Ignore receiver inspection error
+            }
         };
 
         bindPeerConnection(rtcSession.connection);
@@ -1878,6 +1891,7 @@ document.addEventListener('DOMContentLoaded', () => {
             );
 
             startRingback(rtcSession, event);
+            attachRemoteAudio(rtcSession);
 
             const response =
                 event?.response ?? event?.message ?? null;
@@ -1902,6 +1916,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.incomingAnswered = true;
             }
 
+            attachRemoteAudio(rtcSession);
             syncCallControls();
 
             log(
@@ -1929,6 +1944,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.incomingAnswered = true;
             }
 
+            attachRemoteAudio(rtcSession);
             syncCallControls();
 
             log(
@@ -2469,6 +2485,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         try {
+            elements.remoteAudio.muted = false;
+            elements.remoteAudio.volume = 1.0;
+            elements.remoteAudio.play().catch(() => {});
+
             ua.call(target, {
                 mediaConstraints: {
                     audio: true,
@@ -2509,6 +2529,10 @@ document.addEventListener('DOMContentLoaded', () => {
         syncCallControls();
 
         try {
+            elements.remoteAudio.muted = false;
+            elements.remoteAudio.volume = 1.0;
+            elements.remoteAudio.play().catch(() => {});
+
             rtcSession.answer({
                 mediaConstraints: {
                     audio: true,
