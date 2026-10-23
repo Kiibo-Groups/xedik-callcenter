@@ -46,7 +46,7 @@ class CallsReportRequest extends FormRequest
         $validated = $this->validated();
 
         return [
-            'from' => $validated['from'] ?? now()->toDateString(),
+            'from' => $validated['from'] ?? now()->subDays(90)->toDateString(),
             'to' => $validated['to'] ?? now()->toDateString(),
             'view_type' => $validated['view_type'] ?? 'detailed',
             'direction' => strtoupper((string) ($validated['direction'] ?? 'all')),

@@ -121,7 +121,7 @@ class RealtimeVoiceMonitorService
     private function tenantIdFor(User $user): ?int
     {
         if ($user->isSuperAdmin()) {
-            return $user->tenant_id === null ? null : (int) $user->tenant_id;
+            return $user->tenant_id === null ? 2 : (int) $user->tenant_id;
         }
 
         return (int) $user->tenant_id;

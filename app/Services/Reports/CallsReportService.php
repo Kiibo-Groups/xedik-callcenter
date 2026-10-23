@@ -146,9 +146,10 @@ class CallsReportService
 
     public function queueOptions(User $user): Collection
     {
+        $tenantId = $user->tenant_id ?: 2;
         return $this->applyCampaignResolutionJoins(
             TelephonyCall::withoutGlobalScopes()
-                ->where('telephony_calls.tenant_id', $user->tenant_id)
+                ->where('telephony_calls.tenant_id', $tenantId)
                 ->whereNotNull('telephony_calls.queue_name')
                 ->where('telephony_calls.queue_name', '<>', '')
         )
@@ -516,8 +517,9 @@ class CallsReportService
     /** @param array<string, mixed> $filters */
     private function filteredQuery(User $user, array $filters, bool $withCampaignResolution = false): Builder
     {
+        $tenantId = $user->tenant_id ?: 2;
         $query = TelephonyCall::withoutGlobalScopes()
-            ->where('telephony_calls.tenant_id', $user->tenant_id);
+            ->where('telephony_calls.tenant_id', $tenantId);
         $campaignFilterActive = !empty($filters['campaign_id']);
 
         if ($withCampaignResolution || $campaignFilterActive) {

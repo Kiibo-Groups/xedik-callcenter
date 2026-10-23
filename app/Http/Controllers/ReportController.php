@@ -36,7 +36,7 @@ class ReportController extends Controller
         if ($from = $request->get('from')) {
             $query->whereDate('started_at', '>=', $from);
         } else {
-            $query->whereDate('started_at', '>=', now()->startOfDay());
+            $query->whereDate('started_at', '>=', now()->subDays(30)->startOfDay());
         }
 
         if ($to = $request->get('to')) {
@@ -440,7 +440,7 @@ class ReportController extends Controller
         if ($from = $request->get('from')) {
             $query->whereDate('resolved_at', '>=', $from);
         } else {
-            $query->whereDate('resolved_at', '>=', now()->startOfDay());
+            $query->whereDate('resolved_at', '>=', now()->subDays(30)->startOfDay());
         }
 
         if ($to = $request->get('to')) {

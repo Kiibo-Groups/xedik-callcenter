@@ -32,11 +32,13 @@ class CallsReportController extends Controller
             ? $report->groupMetrics($user, $filters)
             : $report->metrics($user, $filters);
 
-        $agents = User::where('tenant_id', $user->tenant_id)
+        $tenantId = $user->tenant_id ?: 2;
+
+        $agents = User::where('tenant_id', $tenantId)
             ->orderBy('name')
             ->get(['id', 'name']);
 
-        $campaigns = Campaign::where('tenant_id', $user->tenant_id)
+        $campaigns = Campaign::where('tenant_id', $tenantId)
             ->orderBy('name')
             ->get(['id', 'name']);
 
