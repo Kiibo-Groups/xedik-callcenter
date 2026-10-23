@@ -33,6 +33,9 @@ use Illuminate\Support\Facades\Route;
 Route::post('telephony/realtime/snapshot', [RealtimeVoiceSnapshotController::class, 'store'])
     ->name('api.telephony.realtime.snapshot');
 
+Route::post('voicebot/appointment', [\App\Http\Controllers\Api\VoicebotController::class, 'logCall'])
+    ->name('api.voicebot.appointment');
+
 Route::middleware('token.auth')->group(function () {
     // Lead Lists
     Route::post(  'lead-lists/{leadListId}/leads',         [LeadListController::class, 'store']  )->name('api.leads.store');

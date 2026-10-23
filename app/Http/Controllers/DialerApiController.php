@@ -86,6 +86,36 @@ class DialerApiController extends Controller
             return response()->json(['error' => 'No recording for this call'], 404);
         }
 
+        // 1. Soporte para grabaciones de ElevenLabs Voicebot (conv_...)
+        if (str_starts_with($call->recording_id, 'conv_')) {
+            try {
+                $apiKey = env('ELEVENLABS_API_KEY', 'sk_e4cbd19dec8a1303347c477783f6c7c3d850ffecb0be4437');
+                $response = Http::withHeaders(['xi-api-key' => $apiKey])
+                    ->get("https://api.elevenlabs.io/v1/convai/conversations/{$call->recording_id}/audio");
+
+                if ($response->successful()) {
+                    return response($response->body(), 200, [
+                        'Content-Type'  => 'audio/mpeg',
+                        'Accept-Ranges' => 'bytes',
+                    ]);
+                }
+            } catch (\Exception $e) {
+                Log::error("Error descargando audio de ElevenLabs: " . $e->getMessage());
+            }
+        }
+
+        // 2. Soporte para grabaciones locales de Asterisk
+        $diskPath = "/var/spool/asterisk/monitor/{$call->recording_id}";
+        if (!file_exists($diskPath) && file_exists("{$diskPath}.wav")) {
+            $diskPath = "{$diskPath}.wav";
+        }
+        if (file_exists($diskPath)) {
+            return response()->file($diskPath, [
+                'Content-Type'  => 'audio/wav',
+                'Accept-Ranges' => 'bytes',
+            ]);
+        }
+
         try {
             $token = $this->getToken();
 
@@ -119,6 +149,36 @@ class DialerApiController extends Controller
     }
     public function recordingByUid(string $uid)
     {
+        // 1. Soporte para grabaciones de ElevenLabs Voicebot (conv_...)
+        if (str_starts_with($uid, 'conv_')) {
+            try {
+                $apiKey = env('ELEVENLABS_API_KEY', 'sk_e4cbd19dec8a1303347c477783f6c7c3d850ffecb0be4437');
+                $response = Http::withHeaders(['xi-api-key' => $apiKey])
+                    ->get("https://api.elevenlabs.io/v1/convai/conversations/{$uid}/audio");
+
+                if ($response->successful()) {
+                    return response($response->body(), 200, [
+                        'Content-Type'  => 'audio/mpeg',
+                        'Accept-Ranges' => 'bytes',
+                    ]);
+                }
+            } catch (\Exception $e) {
+                Log::error("Error descargando audio de ElevenLabs por UID: " . $e->getMessage());
+            }
+        }
+
+        // 2. Soporte para grabaciones locales de Asterisk
+        $diskPath = "/var/spool/asterisk/monitor/{$uid}";
+        if (!file_exists($diskPath) && file_exists("{$diskPath}.wav")) {
+            $diskPath = "{$diskPath}.wav";
+        }
+        if (file_exists($diskPath)) {
+            return response()->file($diskPath, [
+                'Content-Type'  => 'audio/wav',
+                'Accept-Ranges' => 'bytes',
+            ]);
+        }
+
         try {
             $token = $this->getToken();
 
