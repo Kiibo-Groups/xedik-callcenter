@@ -99,11 +99,30 @@
         </form>
     </div>
 
+    {{-- BULK ACTIONS BAR (Visible when checkboxes selected) --}}
+    <div id="bulkActionBar" style="display:none;background:var(--bg-input,#f1f5f9);padding:10px 16px;border-bottom:1px solid var(--border);align-items:center;justify-content:space-between;gap:12px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+            <span class="badge" style="background:var(--primary);color:white;font-size:12px;padding:4px 8px;" id="selectedCountBadge">0 seleccionados</span>
+            <span style="font-size:13px;color:var(--text-muted);">Prospectos seleccionados en esta página</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+            <button type="button" class="btn btn-primary btn-sm" onclick="openBulkAddModal()">
+                <i class="bi bi-send-plus-fill"></i> Enviar a Lista de Marcador (Lead List)
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="clearLeadSelection()">
+                <i class="bi bi-x-circle"></i> Desmarcar todos
+            </button>
+        </div>
+    </div>
+
     <div class="table-wrapper">
         @if($leads->count())
         <table>
             <thead>
                 <tr>
+                    <th style="width:36px;text-align:center;">
+                        <input type="checkbox" id="selectAllLeads" title="Select all on this page" style="cursor:pointer;">
+                    </th>
                     <th>Lead</th>
                     <th>Contact</th>
                     @if($isSuperAdmin)<th>Tenant</th>@endif
@@ -120,6 +139,9 @@
             <tbody>
                 @foreach($leads as $lead)
                 <tr>
+                    <td style="text-align:center;">
+                        <input type="checkbox" class="lead-select-chk" value="{{ $lead->id }}" style="cursor:pointer;">
+                    </td>
                     <td>
                         <div style="font-weight:600;color:var(--text-strong)">{{ $lead->full_name }}</div>
                         <div style="font-size:12px;color:var(--text-muted)">
@@ -220,4 +242,105 @@
     @endif
 </div>
 
+{{-- BULK ADD TO LEAD LIST MODAL --}}
+<div class="modal-overlay" id="bulkAddModal">
+    <div class="modal" style="max-width:480px;">
+        <div class="modal-header" style="padding:14px 20px;">
+            <div class="modal-title"><i class="bi bi-send-plus-fill" style="color:var(--primary);margin-right:6px;"></i> Enviar a Lista del Marcador</div>
+            <button class="modal-close" onclick="closeModal('bulkAddModal')">&times;</button>
+        </div>
+        <form method="POST" action="{{ route('leads.bulkAddToList') }}" id="bulkAddForm">
+            @csrf
+            <div id="hiddenLeadInputs"></div>
+            <div class="modal-body" style="padding:16px 20px;display:flex;flex-direction:column;gap:14px;">
+                <div style="background:var(--bg-input,#f8fafc);padding:12px;border-radius:var(--radius-sm);border:1px solid var(--border);">
+                    <div style="font-size:13px;font-weight:600;color:var(--text-strong);" id="bulkSummaryText">
+                        0 prospectos seleccionados
+                    </div>
+                    <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
+                        Se agregarán con estado <strong>NEW</strong> para ser marcados por la campaña asociada.
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin:0;">
+                    <label class="form-label" style="font-size:12px;font-weight:600;margin-bottom:6px;display:block;">Selecciona la Lista de Destino <span style="color:#ef4444;">*</span></label>
+                    <select name="lead_list_id" class="form-control" required style="font-size:13px;">
+                        <option value="">-- Elige una lista del marcador --</option>
+                        @foreach($leadLists ?? [] as $ll)
+                            <option value="{{ $ll->id }}">{{ $ll->name }} (ID #{{ $ll->id }})</option>
+                        @endforeach
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding:12px 20px;display:flex;justify-content:flex-end;gap:8px;">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('bulkAddModal')">Cancelar</button>
+                <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> Confirmar y Agregar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 @endsection
+
+@push('scripts')
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var selectAll = document.getElementById('selectAllLeads');
+    var checkboxes = document.querySelectorAll('.lead-select-chk');
+    var bar = document.getElementById('bulkActionBar');
+    var badge = document.getElementById('selectedCountBadge');
+
+    function updateBulkBar() {
+        var checked = document.querySelectorAll('.lead-select-chk:checked');
+        var count = checked.length;
+        if (count > 0) {
+            bar.style.display = 'flex';
+            badge.textContent = count + (count === 1 ? ' seleccionado' : ' seleccionados');
+        } else {
+            bar.style.display = 'none';
+        }
+        if (selectAll) {
+            selectAll.checked = checkboxes.length > 0 && checked.length === checkboxes.length;
+        }
+    }
+
+    if (selectAll) {
+        selectAll.addEventListener('change', function () {
+            checkboxes.forEach(function (chk) {
+                chk.checked = selectAll.checked;
+            });
+            updateBulkBar();
+        });
+    }
+
+    checkboxes.forEach(function (chk) {
+        chk.addEventListener('change', updateBulkBar);
+    });
+
+    window.clearLeadSelection = function () {
+        checkboxes.forEach(function (chk) { chk.checked = false; });
+        if (selectAll) selectAll.checked = false;
+        updateBulkBar();
+    };
+
+    window.openBulkAddModal = function () {
+        var checked = document.querySelectorAll('.lead-select-chk:checked');
+        if (checked.length === 0) {
+            alert('Por favor selecciona al menos un prospecto.');
+            return;
+        }
+        var container = document.getElementById('hiddenLeadInputs');
+        container.innerHTML = '';
+        checked.forEach(function (chk) {
+            var input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'lead_ids[]';
+            input.value = chk.value;
+            container.appendChild(input);
+        });
+        document.getElementById('bulkSummaryText').textContent = checked.length + (checked.length === 1 ? ' prospecto seleccionado' : ' prospectos seleccionados');
+        openModal('bulkAddModal');
+    };
+});
+</script>
+@endpush

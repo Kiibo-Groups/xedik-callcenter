@@ -74,8 +74,14 @@ class LeadController extends Controller
                 $q->whereHas('lead', fn($l) => $l->whereIn('campaign_id', $campaigns->pluck('id')));
             })->count();
 
+        $leadListsQuery = \App\Models\LeadList::query()->where('status', '!=', 'archived');
+        if (!$isSuperAdmin && $user->tenant_id) {
+            $leadListsQuery->where('tenant_id', $user->tenant_id);
+        }
+        $leadLists = $leadListsQuery->orderBy('name')->get(['id', 'name', 'tenant_id']);
+
         return view('leads.index', compact('leads', 'statuses', 'agents', 'campaigns',
-            'totalLeads', 'newLeads', 'closedWon', 'scheduled', 'isSuperAdmin'));
+            'totalLeads', 'newLeads', 'closedWon', 'scheduled', 'isSuperAdmin', 'leadLists'));
     }
 
     public function myLeads(Request $request)
@@ -408,5 +414,102 @@ class LeadController extends Controller
         $lead->calls()->delete();
         $lead->delete();
         return redirect()->route('leads.index')->with('success', 'Lead deleted successfully.');
+    }
+
+    public function bulkAddToList(Request $request)
+    {
+        $user = Auth::user();
+        abort_unless($user->isAdmin() || $user->isSuperAdmin() || $user->hasPermission('manage_lead_lists'), 403);
+
+        $request->validate([
+            'lead_ids' => 'required|array|min:1',
+            'lead_ids.*' => 'integer',
+            'lead_list_id' => 'required|integer',
+        ]);
+
+        $leadList = \App\Models\LeadList::findOrFail($request->integer('lead_list_id'));
+        if (!$user->isSuperAdmin() && $leadList->tenant_id != $user->tenant_id) {
+            abort(403);
+        }
+
+        $leadsQuery = Lead::whereIn('id', $request->input('lead_ids'));
+        if (!$user->isSuperAdmin()) {
+            $leadsQuery->where('tenant_id', $user->tenant_id);
+        }
+        $leads = $leadsQuery->get();
+
+        if ($leads->isEmpty()) {
+            return back()->with('error', 'No se encontraron prospectos válidos seleccionados.');
+        }
+
+        $table = $leadList->table_name;
+        $tenantId = (int) $leadList->tenant_id;
+
+        $insertedCount = 0;
+        $dncSkipped = 0;
+        $duplicateSkipped = 0;
+        $noPhoneSkipped = 0;
+
+        foreach ($leads as $lead) {
+            $rawPhone = (string) $lead->phone;
+            $phone = preg_replace('/[^\d+]/', '', $rawPhone);
+            if (strlen($phone) < 7) {
+                $noPhoneSkipped++;
+                continue;
+            }
+
+            // Check DNC
+            $isDnc = \Illuminate\Support\Facades\DB::table('dialer_dnc')
+                ->where('tenant_id', $tenantId)
+                ->where('phone', $phone)
+                ->exists();
+            if ($isDnc) {
+                $dncSkipped++;
+                continue;
+            }
+
+            // Check duplicate in table
+            $exists = \Illuminate\Support\Facades\DB::table($table)->where('phone', $phone)->exists();
+            if ($exists) {
+                $duplicateSkipped++;
+                continue;
+            }
+
+            $custom = [
+                'first_name' => $lead->first_name ?? '',
+                'last_name' => $lead->last_name ?? '',
+                'email' => $lead->email ?? '',
+                'city' => $lead->city ?? '',
+                'crm_lead_id' => (string) $lead->id,
+            ];
+
+            \Illuminate\Support\Facades\DB::table($table)->insert([
+                'phone' => $phone,
+                'status' => 'NEW',
+                'called_count' => 0,
+                'custom_fields' => json_encode($custom, JSON_UNESCAPED_UNICODE),
+            ]);
+
+            $insertedCount++;
+        }
+
+        if ($insertedCount > 0) {
+            $leadList->increment('total_leads', $insertedCount);
+            if ($leadList->status === 'draft') {
+                $leadList->update(['status' => 'ready']);
+            }
+        }
+
+        $msg = "{$insertedCount} prospecto(s) agregados exitosamente a la lista '{$leadList->name}'.";
+        $omitted = [];
+        if ($duplicateSkipped > 0) $omitted[] = "{$duplicateSkipped} ya existían";
+        if ($dncSkipped > 0) $omitted[] = "{$dncSkipped} en lista DNC";
+        if ($noPhoneSkipped > 0) $omitted[] = "{$noPhoneSkipped} sin teléfono válido";
+
+        if (!empty($omitted)) {
+            $msg .= " (" . implode(', ', $omitted) . ")";
+        }
+
+        return back()->with('success', $msg);
     }
 }

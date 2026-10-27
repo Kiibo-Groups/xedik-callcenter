@@ -94,6 +94,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/leads/my',                       [LeadController::class, 'myLeads'])->name('leads.my')->middleware('permission:view_my_leads');
     Route::get('/leads/create',                   [LeadController::class, 'create'])->name('leads.create');
     Route::post('/leads',                         [LeadController::class, 'store'])->name('leads.store');
+    Route::post('/leads/bulk-add-to-list',         [LeadController::class, 'bulkAddToList'])->name('leads.bulkAddToList');
     Route::get('/leads/thread/{reportId}',        [LeadController::class, 'conversationThread'])->name('leads.conversationThread');
     Route::get('/leads/{lead}',                   [LeadController::class, 'show'])->name('leads.show');
     Route::patch('/leads/{lead}',    [LeadController::class, 'update'])->name('leads.update');
@@ -385,6 +386,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/lead-lists',                       [LeadListController::class, 'index'])->name('lead-lists.index');
     Route::post('/lead-lists',                      [LeadListController::class, 'store'])->name('lead-lists.store');
     Route::get('/lead-lists/{leadList}/leads',       [LeadListController::class, 'leads'])->name('lead-lists.leads');
+    Route::post('/lead-lists/{leadList}/leads',      [LeadListController::class, 'storeLead'])->name('lead-lists.leads.store');
+    Route::delete('/lead-lists/{leadList}/leads/{leadId}', [LeadListController::class, 'destroyLead'])->name('lead-lists.leads.destroy');
     Route::get('/lead-lists/{leadList}/export',      [LeadListController::class, 'export'])->name('lead-lists.export');
     Route::post('/lead-lists/{leadList}/import',     [LeadListImportController::class, 'import'])->name('lead-lists.import');
     Route::patch('/lead-lists/{leadList}/archive',          [LeadListController::class, 'archive'])->name('lead-lists.archive');

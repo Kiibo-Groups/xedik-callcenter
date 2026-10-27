@@ -46,8 +46,16 @@ document.addEventListener('DOMContentLoaded', function () {
         form.addEventListener('submit', function (e) {
             e.preventDefault();
             var name = form.dataset.name || 'this item';
-            if (typeof SwalConfirm === 'function') {
-                SwalConfirm('Delete Caller ID', 'Delete "' + name + '"?', function () { form.submit(); });
+            if (window.SwalConfirm && typeof window.SwalConfirm.fire === 'function') {
+                window.SwalConfirm.fire({
+                    title: 'Delete Caller ID',
+                    text: 'Delete "' + name + '"? This action cannot be undone.',
+                    confirmButtonText: 'Yes, delete',
+                }).then(function (result) {
+                    if (result.isConfirmed) {
+                        form.submit();
+                    }
+                });
             } else if (confirm('Delete "' + name + '"?')) {
                 form.submit();
             }

@@ -241,4 +241,86 @@ class LeadListController extends Controller
 
         return response()->json(['ok' => true]);
     }
+
+    public function storeLead(Request $request, LeadList $leadList)
+    {
+        abort_unless(auth()->user()->hasPermission('manage_lead_lists'), 403);
+
+        $request->validate([
+            'phone' => 'required|string|max:30',
+            'first_name' => 'nullable|string|max:100',
+            'last_name' => 'nullable|string|max:100',
+            'email' => 'nullable|string|max:150',
+            'custom_fields' => 'nullable|array',
+        ]);
+
+        $rawPhone = (string) $request->input('phone');
+        $phone = preg_replace('/[^\d+]/', '', $rawPhone);
+        if (strlen($phone) < 7) {
+            return back()->with('error', 'El número de teléfono no es válido.');
+        }
+
+        $tenantId = (int) $leadList->tenant_id;
+
+        // Check DNC
+        $isDnc = \Illuminate\Support\Facades\DB::table('dialer_dnc')
+            ->where('tenant_id', $tenantId)
+            ->where('phone', $phone)
+            ->exists();
+        if ($isDnc) {
+            return back()->with('error', "El teléfono {$phone} está registrado en la lista de No Molestar (DNC).");
+        }
+
+        $table = $leadList->table_name;
+
+        // Check Duplicate in this list
+        $exists = \Illuminate\Support\Facades\DB::table($table)->where('phone', $phone)->exists();
+        if ($exists) {
+            return back()->with('error', "El teléfono {$phone} ya existe en esta lista.");
+        }
+
+        // Build custom fields
+        $custom = (array) $request->input('custom_fields', []);
+        if ($request->filled('first_name')) {
+            $custom['first_name'] = trim((string) $request->input('first_name'));
+        }
+        if ($request->filled('last_name')) {
+            $custom['last_name'] = trim((string) $request->input('last_name'));
+        }
+        if ($request->filled('email')) {
+            $custom['email'] = trim((string) $request->input('email'));
+        }
+
+        \Illuminate\Support\Facades\DB::table($table)->insert([
+            'phone' => $phone,
+            'status' => 'NEW',
+            'called_count' => 0,
+            'custom_fields' => !empty($custom) ? json_encode($custom, JSON_UNESCAPED_UNICODE) : null,
+        ]);
+
+        $leadList->increment('total_leads');
+        if ($leadList->status === 'draft') {
+            $leadList->update(['status' => 'ready']);
+        }
+
+        return back()->with('success', "Lead con teléfono {$phone} agregado exitosamente a la lista.");
+    }
+
+    public function destroyLead(LeadList $leadList, int $leadId)
+    {
+        abort_unless(auth()->user()->hasPermission('manage_lead_lists'), 403);
+
+        $table = $leadList->table_name;
+        $deleted = \Illuminate\Support\Facades\DB::table($table)->where('id', $leadId)->delete();
+
+        if ($deleted) {
+            $leadList->decrement('total_leads');
+            if ($leadList->total_leads <= 0 && $leadList->status === 'ready') {
+                $leadList->update(['status' => 'draft']);
+            }
+            return back()->with('success', 'Lead eliminado de la lista.');
+        }
+
+        return back()->with('error', 'No se encontró el lead a eliminar.');
+    }
 }

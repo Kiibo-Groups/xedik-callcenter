@@ -107,3 +107,23 @@ function _esc(str) {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
 }
+
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.delete-lead-form').forEach(function (form) {
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            var phone = form.dataset.phone || 'this lead';
+            if (window.SwalConfirm && typeof window.SwalConfirm.fire === 'function') {
+                window.SwalConfirm.fire({
+                    title: 'Delete lead?',
+                    text: 'Remove ' + phone + ' from this list?',
+                    confirmButtonText: 'Yes, delete',
+                }).then(function (result) {
+                    if (result.isConfirmed) form.submit();
+                });
+            } else if (confirm('Remove ' + phone + ' from this list?')) {
+                form.submit();
+            }
+        });
+    });
+});

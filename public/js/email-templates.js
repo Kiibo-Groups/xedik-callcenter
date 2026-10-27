@@ -108,11 +108,19 @@ document.addEventListener('DOMContentLoaded', function () {
         form.addEventListener('submit', function (e) {
             e.preventDefault();
             const name = this.dataset.name || 'this template';
-            SwalConfirm(
-                'Delete Template',
-                'Delete "' + name + '"? This action cannot be undone.',
-                function () { form.submit(); }
-            );
+            if (window.SwalConfirm && typeof window.SwalConfirm.fire === 'function') {
+                window.SwalConfirm.fire({
+                    title: 'Delete Template',
+                    text: 'Delete "' + name + '"? This action cannot be undone.',
+                    confirmButtonText: 'Yes, delete',
+                }).then(function (result) {
+                    if (result.isConfirmed) {
+                        form.submit();
+                    }
+                });
+            } else if (confirm('Delete "' + name + '"?')) {
+                form.submit();
+            }
         });
     });
 

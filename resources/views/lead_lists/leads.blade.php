@@ -5,9 +5,14 @@
 @section('page-subtitle', number_format($leads->total()) . ' leads · ' . $leadList->table_name)
 
 @section('header-actions')
-<a href="{{ route('lead-lists.index') }}" class="btn btn-secondary btn-sm">
-    <i class="bi bi-arrow-left"></i> Back to Lists
-</a>
+<div style="display:flex;align-items:center;gap:8px;">
+    <button type="button" class="btn btn-primary btn-sm" onclick="openModal('addLeadModal')">
+        <i class="bi bi-person-plus-fill"></i> Add Lead
+    </button>
+    <a href="{{ route('lead-lists.index') }}" class="btn btn-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i> Back to Lists
+    </a>
+</div>
 @endsection
 
 @section('content')
@@ -191,10 +196,16 @@
                         {{ $preview ?: '—' }}
                     </td>
                     <td>
-                        <button type="button" class="btn btn-outline btn-xs"
-                                onclick="openLeadModal(this.closest('tr'))">
-                            <i class="bi bi-eye"></i> View
-                        </button>
+                        <div style="display:flex;align-items:center;gap:4px;">
+                            <button type="button" class="btn btn-outline btn-xs"
+                                    onclick="openLeadModal(this.closest('tr'))" title="View details">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                            <form method="POST" action="{{ route('lead-lists.leads.destroy', [$leadList, $lead->id]) }}" class="delete-lead-form" data-phone="{{ $lead->phone }}" style="margin:0;">
+                                @csrf @method('DELETE')
+                                <button type="submit" class="btn btn-danger btn-xs" title="Delete lead"><i class="bi bi-trash"></i></button>
+                            </form>
+                        </div>
                     </td>
                 </tr>
                 @endforeach
@@ -211,7 +222,7 @@
         <div class="empty-state">
             <i class="bi {{ $q ? 'bi-search' : 'bi-inbox' }}"></i>
             <h3>{{ $q ? 'No results for "' . $q . '"' : 'No leads imported yet' }}</h3>
-            <p>{{ $q ? 'Try a different search term.' : 'Go back and use the Import button to upload a CSV file.' }}</p>
+            <p>{{ $q ? 'Try a different search term.' : 'Use the Add Lead button or Import CSV to add contacts.' }}</p>
         </div>
         @endif
     </div>
@@ -242,6 +253,44 @@
                 <i class="bi bi-save"></i> Save
             </button>
         </div>
+    </div>
+</div>
+
+{{-- ADD LEAD MANUALLY MODAL --}}
+<div class="modal-overlay" id="addLeadModal">
+    <div class="modal" style="max-width:480px;">
+        <div class="modal-header" style="padding:14px 20px;">
+            <div class="modal-title"><i class="bi bi-person-plus-fill" style="color:var(--primary);margin-right:6px;"></i> Add Lead Manually</div>
+            <button class="modal-close" onclick="closeModal('addLeadModal')">&times;</button>
+        </div>
+        <form method="POST" action="{{ route('lead-lists.leads.store', $leadList) }}">
+            @csrf
+            <div class="modal-body" style="padding:16px 20px;display:flex;flex-direction:column;gap:14px;">
+                <div class="form-group" style="margin:0;">
+                    <label class="form-label" style="font-size:12px;font-weight:600;margin-bottom:4px;display:block;">Phone Number <span style="color:#ef4444;">*</span></label>
+                    <input type="text" name="phone" class="form-control" placeholder="e.g. +523312345678 or 3312345678" required autofocus style="font-size:13px;">
+                    <span style="font-size:11px;color:var(--text-muted);display:block;margin-top:3px;">Validated against DNC and duplicates.</span>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                    <div class="form-group" style="margin:0;">
+                        <label class="form-label" style="font-size:12px;font-weight:600;margin-bottom:4px;display:block;">First Name</label>
+                        <input type="text" name="first_name" class="form-control" placeholder="Juan" style="font-size:13px;">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label class="form-label" style="font-size:12px;font-weight:600;margin-bottom:4px;display:block;">Last Name</label>
+                        <input type="text" name="last_name" class="form-control" placeholder="Pérez" style="font-size:13px;">
+                    </div>
+                </div>
+                <div class="form-group" style="margin:0;">
+                    <label class="form-label" style="font-size:12px;font-weight:600;margin-bottom:4px;display:block;">Email</label>
+                    <input type="email" name="email" class="form-control" placeholder="juan@ejemplo.com" style="font-size:13px;">
+                </div>
+            </div>
+            <div class="modal-footer" style="padding:12px 20px;display:flex;justify-content:flex-end;gap:8px;">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('addLeadModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary"><i class="bi bi-plus-lg"></i> Add to List</button>
+            </div>
+        </form>
     </div>
 </div>
 
