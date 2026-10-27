@@ -220,5 +220,5 @@ window.VoiceCallerIdsConfig = {
     }
 };
 </script>
-<script src="{{ asset('js/voice-caller-ids.js') }}"></script>
+<script src="{{ asset('js/voice-caller-ids.js') }}?v={{ time() }}"></script>
 @endpush

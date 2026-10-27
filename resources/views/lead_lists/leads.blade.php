@@ -298,10 +298,18 @@
 
 @push('scripts')
 <script>
+window.openModal = window.openModal || function (id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.add('active');
+};
+window.closeModal = window.closeModal || function (id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+};
 window.LeadListConfig = {
     updateBaseUrl: '{{ url("/lead-lists/{$leadList->id}/leads") }}/',
     csrf: '{{ csrf_token() }}',
 };
 </script>
-<script src="{{ asset('js/lead-list-leads.js') }}"></script>
+<script src="{{ asset('js/lead-list-leads.js') }}?v={{ time() }}"></script>
 @endpush

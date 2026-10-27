@@ -429,6 +429,16 @@
 
     initTooltips();
 
+    // ── Global Modal Open / Close ──────────────────────────────────────────
+    window.openModal = function (id) {
+        var el = document.getElementById(id);
+        if (el) el.classList.add('active');
+    };
+    window.closeModal = function (id) {
+        var el = document.getElementById(id);
+        if (el) el.classList.remove('active');
+    };
+
     // ── Modal backdrop — close only on real click, not drag release ─────────
     document.addEventListener('DOMContentLoaded', function () {
         document.querySelectorAll('.modal-overlay').forEach(function (el) {
@@ -447,8 +457,8 @@
         });
     });
 
-    // ── SweetAlert2 global mixin ─────────────────────────────────────────────
-    window.SwalConfirm = Swal.mixin({
+    // ── SweetAlert2 global mixin & callable helper ────────────────────────────
+    var _SwalMixin = Swal.mixin({
         buttonsStyling:     true,
         icon:               'warning',
         showCancelButton:   true,
@@ -458,6 +468,22 @@
         cancelButtonColor:  '#64748b',
         focusCancel:        true,
     });
+
+    // Allow calling SwalConfirm(title, text, cb) as function AND SwalConfirm.fire({...}) as object
+    window.SwalConfirm = function (title, text, callback) {
+        return _SwalMixin.fire({
+            title: title || 'Are you sure?',
+            text: text || '',
+        }).then(function (result) {
+            if (result.isConfirmed && typeof callback === 'function') {
+                callback();
+            }
+            return result;
+        });
+    };
+    window.SwalConfirm.fire = function () {
+        return _SwalMixin.fire.apply(_SwalMixin, arguments);
+    };
 </script>
 
 @yield('scripts')
