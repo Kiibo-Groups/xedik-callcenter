@@ -52,7 +52,7 @@
         <div class="sidebar-section-label"></div>
         <nav>
             <div class="nav-item">
-                <a href="./" class="nav-link" title="Home">
+                <a href="{{ route('home') }}" class="nav-link {{ request()->routeIs('home') ? 'active' : '' }}" title="Home">
                     <i class="bi bi-house-door"></i>
                     <span class="nav-link-text">Home</span>
                 </a>
@@ -158,111 +158,111 @@
     @endphp
 
     @foreach($sidebarPerms as $module => $perms)
-    <div class="sidebar-section">
-        <div class="sidebar-section-label">{{ $moduleLabels[$module] ?? ucfirst($module) }}</div>
-        <nav>
-            @if($module === 'admin')
-                @foreach($adminSubgroups as $subKey => $subgroup)
-                @if($subgroup['items']->isNotEmpty())
-                @php
-                    $subHasActive = $subgroup['items']->contains(function($p) {
-                        return $p->name === 'sms_unified'
-                            ? (request()->routeIs('sms-channels.*') || request()->routeIs('sms-templates.*') || request()->routeIs('sms.*'))
-                            : (request()->routeIs($p->route) || request()->routeIs(str_replace('.index', '.*', $p->route)));
-                    });
-                @endphp
-                <div class="sidebar-subgroup {{ $subHasActive ? 'open has-active' : '' }}" id="subgroup-{{ $subKey }}">
-                    <button type="button" class="sidebar-subgroup-header" onclick="toggleSidebarSubgroup('{{ $subKey }}')">
-                        <span class="header-left">
-                            <i class="bi {{ $subgroup['icon'] }}"></i>
-                            <span class="subgroup-title">{{ $subgroup['title'] }}</span>
-                        </span>
-                        <span class="header-right">
-                            <span class="subgroup-count">{{ $subgroup['items']->count() }}</span>
-                            <i class="bi bi-chevron-right subgroup-chevron"></i>
-                        </span>
-                    </button>
-                    <div class="sidebar-subgroup-items">
-                        @foreach($subgroup['items'] as $perm)
-                        @php
-                            try { 
-                                $url = route($perm->route); 
-                            } catch (\Exception $e) { 
-                                $url = '#'; 
-                                \Illuminate\Support\Facades\Log::warning("Invalid route in permission: {$perm->name} -> {$perm->route}");
-                            }
-                            $isActive = $perm->name === 'sms_unified'
+        <div class="sidebar-section">
+            <div class="sidebar-section-label">{{ $moduleLabels[$module] ?? ucfirst($module) }}</div>
+            <nav>
+                @if($module === 'admin')
+                    @foreach($adminSubgroups as $subKey => $subgroup)
+                    @if($subgroup['items']->isNotEmpty())
+                    @php
+                        $subHasActive = $subgroup['items']->contains(function($p) {
+                            return $p->name === 'sms_unified'
                                 ? (request()->routeIs('sms-channels.*') || request()->routeIs('sms-templates.*') || request()->routeIs('sms.*'))
-                                : (request()->routeIs($perm->route) || request()->routeIs(str_replace('.index', '.*', $perm->route)));
-                        @endphp
-                        @if($url !== '#')
-                        <div class="nav-item">
-                            <a href="{{ $url }}" class="nav-link {{ $isActive ? 'active' : '' }}" title="{{ $perm->label }}">
-                                <i class="bi {{ $perm->icon }}"></i>
-                                <span class="nav-link-text">{{ $perm->label }}</span>
-                            </a>
+                                : (request()->routeIs($p->route) || request()->routeIs(str_replace('.index', '.*', $p->route)));
+                        });
+                    @endphp
+                    <div class="sidebar-subgroup {{ $subHasActive ? 'open has-active' : '' }}" id="subgroup-{{ $subKey }}">
+                        <button type="button" class="sidebar-subgroup-header" onclick="toggleSidebarSubgroup('{{ $subKey }}')">
+                            <span class="header-left">
+                                <i class="bi {{ $subgroup['icon'] }}"></i>
+                                <span class="subgroup-title">{{ $subgroup['title'] }}</span>
+                            </span>
+                            <span class="header-right">
+                                <span class="subgroup-count">{{ $subgroup['items']->count() }}</span>
+                                <i class="bi bi-chevron-right subgroup-chevron"></i>
+                            </span>
+                        </button>
+                        <div class="sidebar-subgroup-items">
+                            @foreach($subgroup['items'] as $perm)
+                            @php
+                                try { 
+                                    $url = route($perm->route); 
+                                } catch (\Exception $e) { 
+                                    $url = '#'; 
+                                    \Illuminate\Support\Facades\Log::warning("Invalid route in permission: {$perm->name} -> {$perm->route}");
+                                }
+                                $isActive = $perm->name === 'sms_unified'
+                                    ? (request()->routeIs('sms-channels.*') || request()->routeIs('sms-templates.*') || request()->routeIs('sms.*'))
+                                    : (request()->routeIs($perm->route) || request()->routeIs(str_replace('.index', '.*', $perm->route)));
+                            @endphp
+                            @if($url !== '#')
+                            <div class="nav-item">
+                                <a href="{{ $url }}" class="nav-link {{ $isActive ? 'active' : '' }}" title="{{ $perm->label }}">
+                                    <i class="bi {{ $perm->icon }}"></i>
+                                    <span class="nav-link-text">{{ $perm->label }}</span>
+                                </a>
+                            </div>
+                            @endif
+                            @endforeach
                         </div>
-                        @endif
-                        @endforeach
                     </div>
-                </div>
+                    @endif
+                    @endforeach
+                @else
+                    @foreach($perms as $perm)
+                    @php
+                        try { 
+                            $url = route($perm->route); 
+                        } catch (\Exception $e) { 
+                            $url = '#'; 
+                            \Illuminate\Support\Facades\Log::warning("Invalid route in permission: {$perm->name} -> {$perm->route}");
+                        }
+                        $isActive = request()->routeIs($perm->route) || request()->routeIs(str_replace('.index', '.*', $perm->route));
+                    @endphp
+                    @if($url !== '#')
+                    <div class="nav-item">
+                        <a href="{{ $url }}" class="nav-link {{ $isActive ? 'active' : '' }}" title="{{ $perm->label }}">
+                            <i class="bi {{ $perm->icon }}"></i>
+                            <span class="nav-link-text">{{ $perm->label }}</span>
+                        </a>
+                    </div>
+                    @endif
+                    @endforeach
                 @endif
-                @endforeach
-            @else
-                @foreach($perms as $perm)
-                @php
-                    try { 
-                        $url = route($perm->route); 
-                    } catch (\Exception $e) { 
-                        $url = '#'; 
-                        \Illuminate\Support\Facades\Log::warning("Invalid route in permission: {$perm->name} -> {$perm->route}");
-                    }
-                    $isActive = request()->routeIs($perm->route) || request()->routeIs(str_replace('.index', '.*', $perm->route));
-                @endphp
-                @if($url !== '#')
-                <div class="nav-item">
-                    <a href="{{ $url }}" class="nav-link {{ $isActive ? 'active' : '' }}" title="{{ $perm->label }}">
-                        <i class="bi {{ $perm->icon }}"></i>
-                        <span class="nav-link-text">{{ $perm->label }}</span>
-                    </a>
-                </div>
-                @endif
-                @endforeach
-            @endif
-        </nav>
-    </div>
+            </nav>
+        </div>
     @endforeach
 
     @if(Auth::user()->isSuperAdmin())
-    <div class="sidebar-section">
-        <div class="sidebar-section-label">System</div>
-        <nav>
-            <div class="nav-item">
-                <a href="{{ route('tenants.index') }}" class="nav-link {{ request()->routeIs('tenants.*') ? 'active' : '' }}" title="Tenants">
-                    <i class="bi bi-building"></i>
-                    <span class="nav-link-text">Tenants</span>
-                </a>
-            </div>
-            <div class="nav-item">
-                <a href="{{ route('admin.storage.profiles.index') }}" class="nav-link {{ request()->routeIs('admin.storage.*') ? 'active' : '' }}" title="Storage">
-                    <i class="bi bi-cloud-arrow-up"></i>
-                    <span class="nav-link-text">Storage</span>
-                </a>
-            </div>
-            <div class="nav-item">
-                <a href="{{ route('admin.voice.overview') }}" class="nav-link {{ (request()->routeIs('admin.voice.*') || request()->routeIs('admin.compliance.state-calling-rules.*')) ? 'active' : '' }}" title="Voice">
-                    <i class="bi bi-telephone-fill"></i>
-                    <span class="nav-link-text">Voice</span>
-                </a>
-            </div>
-            <div class="nav-item">
-                <a href="{{ route('admin.sms.provider-accounts.index') }}" class="nav-link {{ request()->routeIs('admin.sms.*') ? 'active' : '' }}" title="SMS Gateways">
-                    <i class="bi bi-hdd-network"></i>
-                    <span class="nav-link-text">SMS Gateways</span>
-                </a>
-            </div>
-        </nav>
-    </div>
+        <div class="sidebar-section">
+            <div class="sidebar-section-label">System</div>
+            <nav>
+                <div class="nav-item">
+                    <a href="{{ route('tenants.index') }}" class="nav-link {{ request()->routeIs('tenants.*') ? 'active' : '' }}" title="Tenants">
+                        <i class="bi bi-building"></i>
+                        <span class="nav-link-text">Tenants</span>
+                    </a>
+                </div>
+                <div class="nav-item">
+                    <a href="{{ route('admin.storage.profiles.index') }}" class="nav-link {{ request()->routeIs('admin.storage.*') ? 'active' : '' }}" title="Storage">
+                        <i class="bi bi-cloud-arrow-up"></i>
+                        <span class="nav-link-text">Storage</span>
+                    </a>
+                </div>
+                <div class="nav-item">
+                    <a href="{{ route('admin.voice.overview') }}" class="nav-link {{ (request()->routeIs('admin.voice.*') || request()->routeIs('admin.compliance.state-calling-rules.*')) ? 'active' : '' }}" title="Voice">
+                        <i class="bi bi-telephone-fill"></i>
+                        <span class="nav-link-text">Voice</span>
+                    </a>
+                </div>
+                <div class="nav-item">
+                    <a href="{{ route('admin.sms.provider-accounts.index') }}" class="nav-link {{ request()->routeIs('admin.sms.*') ? 'active' : '' }}" title="SMS Gateways">
+                        <i class="bi bi-hdd-network"></i>
+                        <span class="nav-link-text">SMS Gateways</span>
+                    </a>
+                </div>
+            </nav>
+        </div>
     @endif
 
     <div class="sidebar-footer">

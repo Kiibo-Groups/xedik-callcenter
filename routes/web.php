@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\HomeController;
 use App\Http\Controllers\LeadController;
 use App\Http\Controllers\PipelineController;
 use App\Http\Controllers\CallController;
@@ -60,7 +61,7 @@ Route::post('/api/webhooks/sms/{provider}/inbound', [\App\Http\Controllers\SmsWe
 Route::post('/api/webhooks/sms/{provider}/status',  [\App\Http\Controllers\SmsWebhookController::class, 'status'])->name('webhook.sms.status');
 
 // ── Auth routes ──
-Route::get('/', fn() => auth()->check() ? view('home') : redirect()->route('login'));
+Route::get('/', fn() => auth()->check() ? app(HomeController::class)->index(request()) : redirect()->route('login'))->name('home');
 Route::get('/login',  [AuthController::class, 'showLogin'])->name('login');
 Route::post('/login', [AuthController::class, 'login'])->name('login.post');
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
