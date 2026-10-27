@@ -1702,8 +1702,20 @@ table tbody tr:last-child td {
 
 /* ── 22. RESPONSIVE BREAKPOINTS ──────────────────────────────────────────── */
 @media (max-width: 768px) {
+    #sidebarToggle {
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        padding: 0;
+        border-radius: var(--radius-sm);
+        flex-shrink: 0;
+    }
+
     .sidebar {
         transform: translateX(-100%);
+        z-index: 999;
     }
 
     .sidebar.open {
@@ -1712,6 +1724,24 @@ table tbody tr:last-child td {
 
     .main-header {
         left: 0;
+        padding: 0 12px;
+        gap: 8px;
+    }
+
+    .page-subtitle {
+        display: none !important;
+    }
+
+    .page-title {
+        font-size: 15px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .header-actions {
+        gap: 6px;
+        margin-left: auto;
     }
 
     .main-content {

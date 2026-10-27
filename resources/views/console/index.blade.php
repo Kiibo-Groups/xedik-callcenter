@@ -1,4 +1,4 @@
-﻿@extends('layouts.app')
+@extends('layouts.app')
 
 @push('styles')
 <style>
@@ -149,6 +149,83 @@
     gap: 4px;
     flex-shrink: 0;
 }
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+    .main-header {
+        padding: 0 10px !important;
+        gap: 6px !important;
+        left: 0 !important;
+        overflow-x: auto !important;
+        scrollbar-width: none !important;
+        -ms-overflow-style: none !important;
+    }
+    .main-header::-webkit-scrollbar {
+        display: none !important;
+    }
+    .page-title {
+        font-size: 15px !important;
+        white-space: nowrap !important;
+        max-width: 75px !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+    .page-subtitle {
+        display: none !important;
+    }
+    .header-actions {
+        gap: 6px !important;
+        margin-left: auto !important;
+        flex-shrink: 0 !important;
+    }
+    #statusIndicator {
+        padding: 5px 8px !important;
+        gap: 4px !important;
+    }
+    #statusLabel {
+        font-size: 11px !important;
+    }
+    #statusTimer {
+        font-size: 11px !important;
+    }
+    .main-header .theme-btn {
+        width: 32px !important;
+        height: 32px !important;
+        padding: 0 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    #sidebarToggle {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 34px !important;
+        height: 34px !important;
+        padding: 0 !important;
+        border-radius: var(--radius-sm) !important;
+        flex-shrink: 0 !important;
+    }
+    .main-content {
+        padding: 0 !important;
+        margin-left: 0 !important;
+        overflow-x: hidden !important;
+    }
+    #consoleGrid {
+        margin: 0 !important;
+        height: calc(100vh - var(--header-h)) !important;
+        width: 100% !important;
+        max-width: 100vw !important;
+    }
+    #statusMenu {
+        min-width: 200px !important;
+        max-width: calc(100vw - 20px) !important;
+    }
+    #notifDropdown, #notifWaDropdown, #toolsMenu {
+        max-width: calc(100vw - 20px) !important;
+        right: 0 !important;
+    }
+}
 </style>
 @endpush
 
@@ -158,7 +235,7 @@
 
 @section('header-actions')
 {{-- Status selector --}}
-<div style="display:flex;align-items:center;gap:8px;">
+<div style="position:relative;display:inline-flex;align-items:center;">
     <div id="statusIndicator" role="button" tabindex="{{ $voiceConsoleState['selector_disabled'] ? '-1' : '0' }}" aria-haspopup="menu" aria-expanded="false" aria-disabled="{{ $voiceConsoleState['selector_disabled'] ? 'true' : 'false' }}" style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:99px;background:var(--bg-th);border:1px solid var(--border);cursor:{{ $voiceConsoleState['selector_disabled'] ? 'not-allowed' : 'pointer' }};opacity:{{ $voiceConsoleState['selector_disabled'] ? '.55' : '1' }};" onclick="toggleStatusMenu()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleStatusMenu();}">
         @php
             $dotColor = match($voiceConsoleState['status']) {
@@ -186,7 +263,7 @@
     </div>
 
     {{-- Status dropdown --}}
-    <div id="statusMenu" style="display:none;position:absolute;top:65px;right:248px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-lg);z-index:999;min-width:200px;padding:8px;">
+    <div id="statusMenu" style="display:none;position:absolute;top:calc(100% + 8px);left:0;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-lg);z-index:99999;min-width:200px;padding:8px;">
         <div id="agentReadyAction" aria-disabled="{{ $voiceCapability['eligible'] ? 'true' : 'false' }}" aria-busy="false" onclick="setStatus('ready')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius-sm);cursor:pointer;" onmouseover="this.style.background='var(--bg-th)'" onmouseout="this.style.background=''">
             <span style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;"></span>
             <span style="font-size:13px;font-weight:500;">Ready</span>
@@ -342,10 +419,6 @@
     </div>
 </div>
 
-{{-- Tools button --}}
-</div>
-
-
 @endsection
 
 @section('content')
@@ -369,7 +442,7 @@
 <div id="consoleGrid" style="display:flex;gap:0;height:calc(100vh - var(--header-h));margin:-24px;overflow:hidden;min-height:0;position:relative;">
 
     {{-- COLUMNA IZQUIERDA — Lista de conversaciones --}}
-    <div style="border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;background:var(--bg-card);overflow:hidden;width:280px;flex-shrink:0;">
+    <div class="console-inbox-col" style="border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;background:var(--bg-card);overflow:hidden;width:280px;flex-shrink:0;">
         {{-- Tabs --}}
         <div style="display:flex;border-bottom:1px solid var(--border);padding:0 8px;">
             <button class="console-tab active" data-tab="all" onclick="filterTab('all')">
@@ -2023,11 +2096,27 @@ function toggleStatusMenu() {
     const menu = document.getElementById('statusMenu');
     const indicator = document.getElementById('statusIndicator');
     const opening = menu.style.display === 'none';
-    menu.style.display = opening ? 'block' : 'none';
-    indicator?.setAttribute('aria-expanded', String(opening));
 
     if (opening) {
+        if (window.innerWidth <= 768 && indicator) {
+            const rect = indicator.getBoundingClientRect();
+            menu.style.position = 'fixed';
+            menu.style.top = (rect.bottom + 6) + 'px';
+            const optimalLeft = Math.max(10, Math.min(rect.left, window.innerWidth - 225));
+            menu.style.left = optimalLeft + 'px';
+            menu.style.right = 'auto';
+        } else {
+            menu.style.position = 'absolute';
+            menu.style.top = 'calc(100% + 8px)';
+            menu.style.left = '0';
+            menu.style.right = 'auto';
+        }
+        menu.style.display = 'block';
+        indicator?.setAttribute('aria-expanded', 'true');
         window.agentConsoleVoiceAdapter?.handleStatusDropdownOpened();
+    } else {
+        menu.style.display = 'none';
+        indicator?.setAttribute('aria-expanded', 'false');
     }
 }
 
