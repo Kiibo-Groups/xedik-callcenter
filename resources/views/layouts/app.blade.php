@@ -49,11 +49,11 @@
     </div>
 
     <div class="sidebar-section">
-        <div class="sidebar-section-label">Inicio</div>
+        <div class="sidebar-section-label"></div>
         <nav>
             <div class="nav-item">
                 <a href="./" class="nav-link" title="Home">
-                    <i class="bi bi-building"></i>
+                    <i class="bi bi-house-door"></i>
                     <span class="nav-link-text">Home</span>
                 </a>
             </div>
