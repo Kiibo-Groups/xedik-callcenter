@@ -156,12 +156,7 @@
         padding: 0 10px !important;
         gap: 6px !important;
         left: 0 !important;
-        overflow-x: auto !important;
-        scrollbar-width: none !important;
-        -ms-overflow-style: none !important;
-    }
-    .main-header::-webkit-scrollbar {
-        display: none !important;
+        overflow: visible !important;
     }
     .page-title {
         font-size: 15px !important;
@@ -2095,28 +2090,14 @@ function toggleStatusMenu() {
     if (!statusSelectorEnabled) return;
     const menu = document.getElementById('statusMenu');
     const indicator = document.getElementById('statusIndicator');
-    const opening = menu.style.display === 'none';
+    if (!menu) return;
+
+    const opening = (menu.style.display === 'none' || menu.style.display === '');
+    menu.style.display = opening ? 'block' : 'none';
+    indicator?.setAttribute('aria-expanded', String(opening));
 
     if (opening) {
-        if (window.innerWidth <= 768 && indicator) {
-            const rect = indicator.getBoundingClientRect();
-            menu.style.position = 'fixed';
-            menu.style.top = (rect.bottom + 6) + 'px';
-            const optimalLeft = Math.max(10, Math.min(rect.left, window.innerWidth - 225));
-            menu.style.left = optimalLeft + 'px';
-            menu.style.right = 'auto';
-        } else {
-            menu.style.position = 'absolute';
-            menu.style.top = 'calc(100% + 8px)';
-            menu.style.left = '0';
-            menu.style.right = 'auto';
-        }
-        menu.style.display = 'block';
-        indicator?.setAttribute('aria-expanded', 'true');
         window.agentConsoleVoiceAdapter?.handleStatusDropdownOpened();
-    } else {
-        menu.style.display = 'none';
-        indicator?.setAttribute('aria-expanded', 'false');
     }
 }
 

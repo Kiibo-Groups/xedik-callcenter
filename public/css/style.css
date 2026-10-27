@@ -1726,6 +1726,11 @@ table tbody tr:last-child td {
         left: 0;
         padding: 0 12px;
         gap: 8px;
+        overflow: visible !important;
+    }
+
+    .header-actions {
+        overflow: visible !important;
     }
 
     .page-subtitle {
