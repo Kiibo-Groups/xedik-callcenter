@@ -349,6 +349,19 @@
                 this.stopTones();
                 this.attachRemoteAudio(session);
                 this.setStatus('In Call');
+
+                if (this.direction === 'incoming') {
+                    window.setTimeout(() => {
+                        if (this.currentSession === session && !session.isEnded() && typeof session.renegotiate === 'function') {
+                            this.log('Triggering auto-renegotiation for audio bridge sync');
+                            try {
+                                session.renegotiate({ useUpdate: false });
+                            } catch (e) {
+                                this.log('Auto-renegotiation error', { message: namespace.safeError(e) });
+                            }
+                        }
+                    }, 300);
+                }
             });
             session.on('muted', event => {
                 if (event?.audio !== false) {
@@ -655,6 +668,9 @@
             const pc = session?.connection;
             if (!pc) return;
             this.bindPeerConnection(pc);
+            if (this.remoteAudio && this.remoteAudio.paused && this.remoteAudio.srcObject) {
+                this.remoteAudio.play().catch(() => {});
+            }
         }
 
         bindPeerConnection(peerConnection) {
