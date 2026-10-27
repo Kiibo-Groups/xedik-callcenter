@@ -20,6 +20,7 @@ class DialerCampaign extends Model
         'dialer_type', 'caller_id', 'context',
         'max_retries', 'dial_block_size', 'offer_timeout_seconds',
         'status', 'started_at', 'completed_at',
+        'scheduled_at', 'scheduled_end_at', 'daily_start_time', 'daily_end_time',
     ];
 
     protected $casts = [
@@ -28,6 +29,8 @@ class DialerCampaign extends Model
         'compliance_config'     => 'array',
         'started_at'            => 'datetime',
         'completed_at'          => 'datetime',
+        'scheduled_at'          => 'datetime',
+        'scheduled_end_at'      => 'datetime',
     ];
 
     public function getLeadOrderDirectionAttribute($value): string
@@ -80,4 +83,5 @@ class DialerCampaign extends Model
     public function isIdle(): bool      { return $this->status === 'idle'; }
     public function isPaused(): bool    { return $this->status === 'paused'; }
     public function isCompleted(): bool { return $this->status === 'completed'; }
+    public function isScheduled(): bool { return $this->status === 'scheduled'; }
 }

@@ -487,75 +487,16 @@ class DialerCampaignController extends Controller
     {
         abort_unless(auth()->user()->hasPermission('manage_dialer_campaigns'), 403);
 
-        if ($dialerCampaign->dialer_type === 'preview') {
-            return $this->playPreview($dialerCampaign);
+        if (!in_array($dialerCampaign->status, ['idle', 'paused', 'scheduled'], true)) {
+            return response()->json(['error' => 'Campaign must be idle, paused, or scheduled to start.'], 422);
         }
 
-        if (!in_array($dialerCampaign->status, ['idle', 'paused'], true)) {
-            return response()->json(['error' => 'Campaign must be idle or paused to start.'], 422);
+        $res = app(\App\Services\Dialer\DialerSchedulerService::class)->startCampaign($dialerCampaign);
+        if (!($res['ok'] ?? false)) {
+            return response()->json(['error' => $res['error'] ?? 'Failed to start campaign.'], 422);
         }
 
-        $leadList = $dialerCampaign->leadList;
-        if (!$leadList) {
-            return response()->json(['error' => 'Campaign has no lead list assigned.'], 422);
-        }
-        if ($leadList->status !== 'ready') {
-            return response()->json(['error' => 'Lead list is not in ready status.'], 422);
-        }
-
-        // ── Resuming from paused: queue already exists, just flip to running ──
-        if ($dialerCampaign->isPaused()) {
-            $pending = DB::table('queue_dial')
-                ->where('dialer_campaign_id', $dialerCampaign->id)
-                ->where('status', 'pending')
-                ->count();
-
-            $dialerCampaign->update(['status' => 'running', 'completed_at' => null]);
-
-            Log::info("DialerCampaign #{$dialerCampaign->id} resumed: {$pending} pending leads in queue.");
-
-            return response()->json(['ok' => true, 'enqueued' => $pending, 'resumed' => true]);
-        }
-
-        // ── Starting from idle: populate queue_dial ──────────────────────────
-        $dialerCampaign->update(['status' => 'running', 'completed_at' => null]);
-
-        $tenantId  = (int) $dialerCampaign->tenant_id;
-        $tableName = $leadList->table_name;
-
-        $dncPhones = DB::table('dialer_dnc')
-            ->where('tenant_id', $tenantId)
-            ->pluck('phone')
-            ->toArray();
-
-        $leads = DB::table($tableName)
-            ->whereIn('status', ['NEW', 'BUSY', 'NO_ANSWER', 'FAILED'])
-            ->where('called_count', '<', $dialerCampaign->max_retries)
-            ->when(!empty($dncPhones), fn($q) => $q->whereNotIn('phone', $dncPhones))
-            ->select('id', 'phone')
-            ->get();
-
-        if ($leads->isEmpty()) {
-            $dialerCampaign->update(['status' => 'completed']);
-            return response()->json(['ok' => true, 'enqueued' => 0, 'message' => 'No eligible leads — campaign marked as completed.']);
-        }
-
-        $rows = $leads->map(fn($l) => [
-            'tenant_id'          => $tenantId,
-            'dialer_campaign_id' => $dialerCampaign->id,
-            'lead_list_table'    => $tableName,
-            'dialer_lead_id'     => $l->id,
-            'phone'              => $l->phone,
-            'status'             => 'pending',
-        ])->all();
-
-        foreach (array_chunk($rows, 500) as $chunk) {
-            DB::table('queue_dial')->insert($chunk);
-        }
-
-        Log::info("DialerCampaign #{$dialerCampaign->id} started: {$leads->count()} leads queued.");
-
-        return response()->json(['ok' => true, 'enqueued' => $leads->count()]);
+        return response()->json($res);
     }
 
     // ── Reset ────────────────────────────────────────────────────────────────
@@ -595,7 +536,7 @@ class DialerCampaignController extends Controller
     {
         abort_unless(auth()->user()->hasPermission('manage_dialer_campaigns'), 403);
 
-        if (!in_array($dialerCampaign->status, ['running', 'paused'], true)) {
+        if (!in_array($dialerCampaign->status, ['running', 'paused', 'scheduled'], true)) {
             return response()->json(['error' => 'Campaign is not active.'], 422);
         }
 
@@ -699,12 +640,28 @@ class DialerCampaignController extends Controller
             'context' => [$isPreview ? 'nullable' : 'required', 'nullable', 'string', 'max:100'],
             'max_retries' => ['required', 'integer', 'min:1', 'max:100'],
             'dial_block_size' => [$isPreview ? 'nullable' : 'required', 'nullable', 'integer', 'min:1', 'max:100'],
+            'scheduled_at' => ['nullable', 'date'],
+            'scheduled_end_at' => ['nullable', 'date'],
+            'daily_start_time' => ['nullable', 'string'],
+            'daily_end_time' => ['nullable', 'string'],
         ]);
 
         if ($existing && $existing->dialer_type !== $validated['dialer_type'] && !$existing->isIdle()) {
             throw ValidationException::withMessages([
                 'dialer_type' => 'Dialer type can only be changed while the campaign is idle.',
             ]);
+        }
+
+        $scheduledAt = !empty($validated['scheduled_at']) ? \Carbon\Carbon::parse($validated['scheduled_at']) : null;
+        $scheduledEndAt = !empty($validated['scheduled_end_at']) ? \Carbon\Carbon::parse($validated['scheduled_end_at']) : null;
+        $dailyStartTime = !empty($validated['daily_start_time']) ? $validated['daily_start_time'] : null;
+        $dailyEndTime = !empty($validated['daily_end_time']) ? $validated['daily_end_time'] : null;
+
+        $status = $existing?->status ?? 'idle';
+        if ($scheduledAt && $scheduledAt->isFuture() && in_array($status, ['idle', 'scheduled'], true)) {
+            $status = 'scheduled';
+        } elseif (!$scheduledAt && $status === 'scheduled') {
+            $status = 'idle';
         }
 
         if ($isPreview) {
@@ -744,8 +701,12 @@ class DialerCampaignController extends Controller
                 'max_retries' => (int) $validated['max_retries'],
                 'dial_block_size' => $existing?->dial_block_size ?: 1,
                 'offer_timeout_seconds' => (int) $validated['offer_timeout_seconds'],
-                'status' => $existing?->status ?? 'idle',
+                'status' => $status,
                 'started_at' => $existing?->started_at,
+                'scheduled_at' => $scheduledAt,
+                'scheduled_end_at' => $scheduledEndAt,
+                'daily_start_time' => $dailyStartTime,
+                'daily_end_time' => $dailyEndTime,
             ];
         }
 
@@ -762,8 +723,12 @@ class DialerCampaignController extends Controller
             'max_retries' => (int) $validated['max_retries'],
             'dial_block_size' => (int) $validated['dial_block_size'],
             'offer_timeout_seconds' => (int) ($validated['offer_timeout_seconds'] ?? $existing?->offer_timeout_seconds ?? 60),
-            'status' => $existing?->status ?? 'idle',
+            'status' => $status,
             'started_at' => $existing?->started_at,
+            'scheduled_at' => $scheduledAt,
+            'scheduled_end_at' => $scheduledEndAt,
+            'daily_start_time' => $dailyStartTime,
+            'daily_end_time' => $dailyEndTime,
         ];
     }
 

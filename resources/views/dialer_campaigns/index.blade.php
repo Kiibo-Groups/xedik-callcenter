@@ -16,6 +16,10 @@
         <div><div class="stat-label">Running</div><div class="stat-value">{{ $campaigns->where('status','running')->count() }}</div></div>
     </div>
     <div class="stat-card">
+        <div class="stat-icon yellow"><i class="bi bi-clock-history"></i></div>
+        <div><div class="stat-label">Scheduled</div><div class="stat-value">{{ $campaigns->where('status','scheduled')->count() }}</div></div>
+    </div>
+    <div class="stat-card">
         <div class="stat-icon purple"><i class="bi bi-check2-all"></i></div>
         <div><div class="stat-label">Completed</div><div class="stat-value">{{ $campaigns->where('status','completed')->count() }}</div></div>
     </div>
@@ -87,6 +91,7 @@
                                 $isFinalizando                  => ['class'=>'badge-warning',   'icon'=>'bi-hourglass-split', 'label'=>'Finalizing...'],
                                 $dc->status === 'running'       => ['class'=>'badge-success',   'icon'=>'bi-play-fill',       'label'=>'Running'],
                                 $dc->status === 'paused'        => ['class'=>'badge-warning',   'icon'=>'bi-pause-fill',      'label'=>'Paused'],
+                                $dc->status === 'scheduled'     => ['class'=>'badge-info',      'icon'=>'bi-clock-history',   'label'=>'Scheduled'],
                                 $dc->status === 'completed'     => ['class'=>'badge-secondary', 'icon'=>'bi-check2-all',      'label'=>'Completed'],
                                 default                         => ['class'=>'badge-secondary', 'icon'=>'bi-stop-fill',       'label'=>'Idle'],
                             };
@@ -94,6 +99,22 @@
                         <span class="badge {{ $st['class'] }}">
                             <i class="bi {{ $st['icon'] }} badge-icon"></i> {{ $st['label'] }}
                         </span>
+                        @if($dc->status === 'scheduled')
+                            @if($dc->scheduled_at)
+                            <div style="margin-top:4px;font-size:11px;color:#0891b2;font-weight:500;">
+                                <i class="bi bi-calendar-event"></i> {{ $dc->scheduled_at->format('d/m/Y H:i') }}
+                            </div>
+                            @endif
+                            @if($dc->daily_start_time && $dc->daily_end_time)
+                            <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">
+                                <i class="bi bi-clock"></i> {{ substr($dc->daily_start_time, 0, 5) }} - {{ substr($dc->daily_end_time, 0, 5) }}
+                            </div>
+                            @endif
+                        @elseif($dc->daily_start_time && $dc->daily_end_time)
+                            <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">
+                                <i class="bi bi-clock"></i> {{ substr($dc->daily_start_time, 0, 5) }} - {{ substr($dc->daily_end_time, 0, 5) }}
+                            </div>
+                        @endif
                         @if($isFinalizando)
                         <div style="margin-top:4px;font-size:10px;color:#b45309;">
                             Saving results to DB... {{ $s['new'] }} pending
@@ -134,13 +155,18 @@
                                 <i class="bi bi-play-fill"></i> Start
                             </button>
                             @endif
+                            @if($dc->status === 'scheduled')
+                            <button class="btn btn-outline btn-xs" style="color:#0891b2;border-color:#0891b2;" onclick="campaignAction({{ $dc->id }},'play')" title="Start Now without waiting">
+                                <i class="bi bi-play-fill"></i> Start Now
+                            </button>
+                            @endif
                             @if($dc->status === 'running')
                             <button class="btn btn-outline btn-xs" style="color:#b45309;border-color:#b45309;" onclick="campaignAction({{ $dc->id }},'pause')" title="Pause">
                                 <i class="bi bi-pause-fill"></i> Pause
                             </button>
                             @endif
-                            @if(in_array($dc->status, ['running','paused']))
-                            <button class="btn btn-danger btn-xs" onclick="campaignAction({{ $dc->id }},'stop')" title="Stop and clear queue">
+                            @if(in_array($dc->status, ['running','paused','scheduled']))
+                            <button class="btn btn-danger btn-xs" onclick="campaignAction({{ $dc->id }},'stop')" title="{{ $dc->status === 'scheduled' ? 'Cancel schedule' : 'Stop and clear queue' }}">
                                 <i class="bi bi-stop-fill"></i>
                             </button>
                             @endif

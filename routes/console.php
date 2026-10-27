@@ -12,6 +12,7 @@ Schedule::command('email:poll')->everyTwoMinutes();
 Schedule::command('agents:cleanup')->everyMinute();
 Schedule::command('conversations:assign')->everyMinute();
 Schedule::command('preview:recover-stale-offers')->everyMinute()->withoutOverlapping();
+Schedule::command('dialer:check-scheduled')->everyMinute()->withoutOverlapping();
 
 Schedule::call(function () {
     // Copiar mensajes a message_reports antes de borrar

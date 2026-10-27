@@ -36,8 +36,22 @@ class RunDialerWorker extends Command
         return 0;
     }
 
+    private int $lastScheduleCheck = 0;
+
     private function processQueue(): void
     {
+        // 0. Revisar campañas programadas y ventanas de horario cada 5 segundos
+        if (time() - $this->lastScheduleCheck >= 5) {
+            $this->lastScheduleCheck = time();
+            try {
+                $scheduler = app(\App\Services\Dialer\DialerSchedulerService::class);
+                $scheduler->processScheduledCampaigns();
+                $scheduler->checkDailyWindowsAndAutoPause();
+            } catch (\Throwable $e) {
+                Log::warning('Dialer scheduler check failed', ['error' => $e->getMessage()]);
+            }
+        }
+
         // 1. Get all running campaigns
         $campaigns = DB::table('dialer_campaigns')
             ->where('status', 'running')

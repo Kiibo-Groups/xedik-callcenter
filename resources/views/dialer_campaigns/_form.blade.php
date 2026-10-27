@@ -127,3 +127,37 @@
     <div class="form-hint">Max simultaneous calls</div>
     @error('dial_block_size')<div class="form-hint" style="color:var(--danger);">{{ $message }}</div>@enderror
 </div>
+
+<div style="margin-top:1.25rem;padding-top:1rem;border-top:1px dashed var(--border-color, #e2e8f0);">
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px;display:flex;align-items:center;gap:6px;color:var(--text-primary, #0f172a);">
+        <i class="bi bi-calendar-event text-primary"></i> Programación / Scheduling (Opcional)
+    </div>
+    <div class="form-row cols-2">
+        <div class="form-group">
+            <label class="form-label">Fecha y Hora de Inicio</label>
+            <input type="datetime-local" name="scheduled_at" class="form-control" value="{{ old('scheduled_at') }}">
+            <div class="form-hint">Si es a futuro, la campaña esperará automáticamente a esta fecha/hora para iniciar.</div>
+            @error('scheduled_at')<div class="form-hint" style="color:var(--danger);">{{ $message }}</div>@enderror
+        </div>
+        <div class="form-group">
+            <label class="form-label">Fecha y Hora de Fin</label>
+            <input type="datetime-local" name="scheduled_end_at" class="form-control" value="{{ old('scheduled_end_at') }}">
+            <div class="form-hint">La campaña se pausará automáticamente al llegar a este momento.</div>
+            @error('scheduled_end_at')<div class="form-hint" style="color:var(--danger);">{{ $message }}</div>@enderror
+        </div>
+    </div>
+    <div class="form-row cols-2">
+        <div class="form-group">
+            <label class="form-label">Ventana Diaria: Hora Inicio</label>
+            <input type="time" name="daily_start_time" class="form-control" value="{{ old('daily_start_time') }}">
+            <div class="form-hint">Ej: 09:00. No marcará antes de esta hora.</div>
+            @error('daily_start_time')<div class="form-hint" style="color:var(--danger);">{{ $message }}</div>@enderror
+        </div>
+        <div class="form-group">
+            <label class="form-label">Ventana Diaria: Hora Fin</label>
+            <input type="time" name="daily_end_time" class="form-control" value="{{ old('daily_end_time') }}">
+            <div class="form-hint">Ej: 18:00. Pausará las llamadas fuera de esta hora.</div>
+            @error('daily_end_time')<div class="form-hint" style="color:var(--danger);">{{ $message }}</div>@enderror
+        </div>
+    </div>
+</div>
