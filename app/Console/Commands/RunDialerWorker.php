@@ -102,14 +102,31 @@ class RunDialerWorker extends Command
 
                 $this->info("Dialing lead #{$item->dialer_lead_id} (Phone: {$dialExten}) for Campaign #{$campaignId}...");
 
+                // Resolve voicebot agent according to campaign tenant
+                $agentId = 'agent_0001m5h3zv32egsb2mfmgnd6a395'; // default Xedik Marto
+                if ($campaign && $campaign->tenant_id == 5) {
+                    $agentId = 'agent_2101m5xst5cgf1gv86jxhf2an2nd'; // FOU Predator Carlos
+                }
+
                 // Execute Asterisk originate
-                // Originates Local/{dialExten}@xedik_outbound to connect to xedik_voicebot_outbound
+                // Originates Local/{dialExten}@xedik_outbound to connect to {agentId}@xedik_voicebot_outbound
                 $cmd = sprintf(
-                    'asterisk -rx "channel originate Local/%s@xedik_outbound extension s@xedik_voicebot_outbound"',
-                    escapeshellcmd($dialExten)
+                    'asterisk -rx "channel originate Local/%s@xedik_outbound extension %s@xedik_voicebot_outbound"',
+                    escapeshellcmd($dialExten),
+                    escapeshellcmd($agentId)
                 );
 
+                $this->info("Originating call: {$cmd}");
                 exec($cmd, $output, $returnCode);
+
+                Log::info("Dialer originate executed", [
+                    'lead_id'   => $item->dialer_lead_id,
+                    'phone'     => $dialExten,
+                    'agent_id'  => $agentId,
+                    'cmd'       => $cmd,
+                    'return'    => $returnCode,
+                    'output'    => $output,
+                ]);
 
                 // Update lead in its lead table
                 if (!empty($item->lead_list_table)) {
