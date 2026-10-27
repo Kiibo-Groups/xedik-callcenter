@@ -3,6 +3,14 @@
 
     const namespace = window.xedikVoice = window.xedikVoice || {};
 
+    const DEFAULT_RTC_CONFIG = {
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+        ],
+    };
+
     class VoiceCallManager {
         constructor(options) {
             this.emitter = namespace.createEmitter();
@@ -159,6 +167,7 @@
                         audio: true,
                         video: false,
                     },
+                    pcConfig: DEFAULT_RTC_CONFIG,
                     extraHeaders: options.extraHeaders ?? [],
                 });
             } catch (error) {
@@ -465,6 +474,7 @@
                     audio: true,
                     video: false,
                 },
+                pcConfig: DEFAULT_RTC_CONFIG,
             });
             this.emit('controls', this.snapshot());
         }
@@ -700,22 +710,32 @@
                 return;
             }
 
-            if (this.remoteAudio.srcObject === stream && !this.remoteAudio.paused) {
-                return;
-            }
+            try {
+                const audioTracks = typeof stream.getAudioTracks === 'function' ? stream.getAudioTracks() : [];
+                audioTracks.forEach(track => {
+                    track.enabled = true;
+                });
+            } catch (_) {}
 
             this.remoteAudio.srcObject = stream;
             this.remoteAudio.muted = false;
             this.remoteAudio.volume = 1.0;
-            const play = this.remoteAudio.play();
+            const playPromise = this.remoteAudio.play();
 
-            play?.catch(error => {
-                if (error?.name !== 'AbortError') {
-                    this.log('Remote audio play rejected', {
-                        message: namespace.safeError(error),
-                    });
-                }
-            });
+            if (playPromise !== undefined) {
+                playPromise.catch(error => {
+                    if (error?.name !== 'AbortError') {
+                        this.log('Remote audio play rejected, attaching user interaction unlocker', {
+                            message: namespace.safeError(error),
+                        });
+                        const unlock = () => {
+                            this.remoteAudio.play().catch(() => {});
+                            document.removeEventListener('click', unlock);
+                        };
+                        document.addEventListener('click', unlock, { once: true });
+                    }
+                });
+            }
         }
 
         remoteAudioIsPlayable() {

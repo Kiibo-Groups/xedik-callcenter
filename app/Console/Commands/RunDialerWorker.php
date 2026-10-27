@@ -123,9 +123,10 @@ class RunDialerWorker extends Command
                 }
 
                 // Execute Asterisk originate
-                // Originates Local/{dialExten}@xedik_outbound to connect to {agentId}@xedik_voicebot_outbound
+                // Originates Local/{dialExten}@xedik_outbound/n to connect to {agentId}@xedik_voicebot_outbound
+                // Note: /n prevents local channel optimization so WebRTC DTLS-SRTP and audio translation remain intact
                 $cmd = sprintf(
-                    'asterisk -rx "channel originate Local/%s@xedik_outbound extension %s@xedik_voicebot_outbound"',
+                    'asterisk -rx "channel originate Local/%s@xedik_outbound/n extension %s@xedik_voicebot_outbound"',
                     escapeshellcmd($dialExten),
                     escapeshellcmd($agentId)
                 );

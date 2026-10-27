@@ -370,6 +370,13 @@
                 realm: sip.realm,
                 register: true,
                 session_timers: false,
+                pcConfig: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' },
+                        { urls: 'stun:stun2.l.google.com:19302' },
+                    ],
+                },
             });
 
             ua.expectedShutdown = false;
