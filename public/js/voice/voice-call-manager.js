@@ -3,14 +3,6 @@
 
     const namespace = window.xedikVoice = window.xedikVoice || {};
 
-    const DEFAULT_RTC_CONFIG = {
-        iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-        ],
-    };
-
     class VoiceCallManager {
         constructor(options) {
             this.emitter = namespace.createEmitter();
@@ -167,7 +159,6 @@
                         audio: true,
                         video: false,
                     },
-                    pcConfig: DEFAULT_RTC_CONFIG,
                     extraHeaders: options.extraHeaders ?? [],
                 });
             } catch (error) {
@@ -474,7 +465,6 @@
                     audio: true,
                     video: false,
                 },
-                pcConfig: DEFAULT_RTC_CONFIG,
             });
             this.emit('controls', this.snapshot());
         }
