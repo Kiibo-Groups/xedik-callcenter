@@ -21,9 +21,11 @@ final class AgentConsoleVoiceEligibilityService
             'intval',
             $agentConsoleConfig['user_ids'] ?? []
         );
+        $tenantAllowed = empty($tenantIds) || in_array((int) $user->tenant_id, $tenantIds, true);
+        $userAllowed = empty($userIds) || in_array((int) $user->id, $userIds, true);
         $qaEnabled = (bool) ($agentConsoleConfig['enabled'] ?? false)
-            && in_array((int) $user->tenant_id, $tenantIds, true)
-            && in_array((int) $user->id, $userIds, true);
+            && $tenantAllowed
+            && $userAllowed;
 
         if (!$qaEnabled || !config('voice.enabled')) {
             return $this->disabledCapability();
