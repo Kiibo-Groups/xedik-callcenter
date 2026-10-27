@@ -1,0 +1,137 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+
+class RunDialerWorker extends Command
+{
+    protected $signature = 'dialer:worker {--once : Run a single loop iteration and exit}';
+    protected $description = 'Worker daemon to originate calls for running campaigns in queue_dial';
+
+    public function handle(): int
+    {
+        $once = (bool) $this->option('once');
+        $this->info('Xedik Dialer Worker started. Listening for running campaigns...');
+
+        while (true) {
+            try {
+                $this->processQueue();
+            } catch (\Throwable $e) {
+                $this->error('Dialer worker error: ' . $e->getMessage());
+                Log::error('Dialer worker exception', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            }
+
+            if ($once) {
+                break;
+            }
+
+            sleep(2);
+        }
+
+        return 0;
+    }
+
+    private function processQueue(): void
+    {
+        // 1. Get all running campaigns
+        $campaigns = DB::table('dialer_campaigns')
+            ->where('status', 'running')
+            ->get();
+
+        if ($campaigns->isEmpty()) {
+            return;
+        }
+
+        foreach ($campaigns as $campaign) {
+            $campaignId = (int) $campaign->id;
+
+            // Get pending items for this campaign
+            $pendingLeads = DB::table('queue_dial')
+                ->where('dialer_campaign_id', $campaignId)
+                ->where('status', 'pending')
+                ->orderBy('id', 'asc')
+                ->limit(3)
+                ->get();
+
+            if ($pendingLeads->isEmpty()) {
+                // Check if any leads are still dialing
+                $dialingCount = DB::table('queue_dial')
+                    ->where('dialer_campaign_id', $campaignId)
+                    ->where('status', 'dialing')
+                    ->count();
+
+                if ($dialingCount === 0) {
+                    // Campaign finished
+                    DB::table('dialer_campaigns')
+                        ->where('id', $campaignId)
+                        ->update([
+                            'status'       => 'completed',
+                            'completed_at' => now(),
+                        ]);
+                    $this->info("Campaign #{$campaignId} completed (no pending or dialing leads).");
+                    Log::info("Campaign #{$campaignId} completed.");
+                }
+                continue;
+            }
+
+            foreach ($pendingLeads as $item) {
+                $phone = preg_replace('/[^\d+]/', '', (string) $item->phone);
+                if (strlen($phone) < 7) {
+                    DB::table('queue_dial')->where('id', $item->id)->delete();
+                    continue;
+                }
+
+                // Format phone for Asterisk outbound
+                if (str_starts_with($phone, '+52') && strlen($phone) === 13) {
+                    $dialExten = substr($phone, 3);
+                } elseif (str_starts_with($phone, '52') && strlen($phone) === 12) {
+                    $dialExten = substr($phone, 2);
+                } else {
+                    $dialExten = $phone;
+                }
+
+                // Mark dialing in queue_dial
+                DB::table('queue_dial')
+                    ->where('id', $item->id)
+                    ->update(['status' => 'dialing']);
+
+                $this->info("Dialing lead #{$item->dialer_lead_id} (Phone: {$dialExten}) for Campaign #{$campaignId}...");
+
+                // Execute Asterisk originate
+                // Originates Local/{dialExten}@xedik_outbound to connect to xedik_voicebot_outbound
+                $cmd = sprintf(
+                    'asterisk -rx "channel originate Local/%s@xedik_outbound extension s@xedik_voicebot_outbound"',
+                    escapeshellcmd($dialExten)
+                );
+
+                exec($cmd, $output, $returnCode);
+
+                // Update lead in its lead table
+                if (!empty($item->lead_list_table)) {
+                    try {
+                        DB::table($item->lead_list_table)
+                            ->where('id', $item->dialer_lead_id)
+                            ->update([
+                                'called_count'   => DB::raw('called_count + 1'),
+                                'last_called_at' => now(),
+                                'status'         => 'DIALED',
+                            ]);
+                    } catch (\Throwable $e) {
+                        Log::warning("Could not update {$item->lead_list_table}: " . $e->getMessage());
+                    }
+                }
+
+                // Remove from queue_dial or mark done
+                DB::table('queue_dial')->where('id', $item->id)->delete();
+
+                // Rate limiting between calls in the same campaign
+                sleep(1);
+            }
+        }
+    }
+}
