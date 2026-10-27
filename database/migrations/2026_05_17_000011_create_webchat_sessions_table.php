@@ -26,8 +26,8 @@ return new class extends Migration
             $table->string('outcome', 50)->nullable();
             $table->timestamps();
 
-            $table->foreign('tenant_id')->references('id')->on('tenants');
-            $table->foreign('webchat_config_id')->references('id')->on('webchat_configs');
+            $table->foreign('tenant_id')->references('id')->on('tenants')->cascadeOnDelete();
+            $table->foreign('webchat_config_id')->references('id')->on('webchat_configs')->cascadeOnDelete();
             $table->foreign('lead_id')->references('id')->on('leads')->nullOnDelete();
             $table->foreign('conversation_id')->references('id')->on('conversations')->nullOnDelete();
             $table->index(['tenant_id', 'created_at']);

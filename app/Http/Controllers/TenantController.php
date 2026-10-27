@@ -7,6 +7,8 @@ use App\Models\Tenant;
 use App\Models\LeadSource;
 use App\Models\VoiceTenantSetting;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 class TenantController extends Controller
@@ -215,7 +217,27 @@ class TenantController extends Controller
             return back()->with('error', 'Cannot delete a tenant that has users assigned.');
         }
 
-        $tenant->delete();
-        return back()->with('success', 'Tenant deleted.');
+        try {
+            DB::transaction(function () use ($tenant) {
+                // Reassign any users (such as superadmins) whose role_id points to roles of this tenant
+                $tenantRoleIds = \App\Models\Role::withoutGlobalScopes()->where('tenant_id', $tenant->id)->pluck('id');
+                if ($tenantRoleIds->isNotEmpty()) {
+                    $fallbackRole = \App\Models\Role::withoutGlobalScopes()
+                        ->where('tenant_id', '!=', $tenant->id)
+                        ->where('name', 'admin')
+                        ->first();
+                    if ($fallbackRole) {
+                        \App\Models\User::whereIn('role_id', $tenantRoleIds)->update(['role_id' => $fallbackRole->id]);
+                    }
+                }
+
+                $tenant->delete();
+            });
+
+            return back()->with('success', 'Tenant deleted successfully.');
+        } catch (\Throwable $e) {
+            Log::error('Tenant deletion failed: ' . $e->getMessage(), ['tenant_id' => $tenant->id, 'exception' => $e]);
+            return back()->with('error', 'Could not delete tenant: ' . $e->getMessage());
+        }
     }
 }

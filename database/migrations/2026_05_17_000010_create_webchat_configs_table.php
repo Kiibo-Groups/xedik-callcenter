@@ -29,8 +29,8 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->timestamps();
 
-            $table->foreign('tenant_id')->references('id')->on('tenants');
-            $table->foreign('omni_queue_id')->references('id')->on('omni_queues');
+            $table->foreign('tenant_id')->references('id')->on('tenants')->cascadeOnDelete();
+            $table->foreign('omni_queue_id')->references('id')->on('omni_queues')->cascadeOnDelete();
             $table->index(['tenant_id', 'is_active']);
         });
     }
