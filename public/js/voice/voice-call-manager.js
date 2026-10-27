@@ -665,17 +665,6 @@
             const pc = session?.connection;
             if (!pc) return;
             this.bindPeerConnection(pc);
-
-            try {
-                const receivers = pc.getReceivers?.() || [];
-                const audioReceiver = receivers.find(r => r.track && r.track.kind === 'audio');
-                if (audioReceiver && audioReceiver.track) {
-                    const stream = new MediaStream([audioReceiver.track]);
-                    this.attachRemoteStream(stream);
-                }
-            } catch (err) {
-                // Ignore receiver inspection error
-            }
         }
 
         bindPeerConnection(peerConnection) {
@@ -694,14 +683,16 @@
                 });
             }
 
-            try {
-                const receivers = peerConnection.getReceivers?.() || [];
-                const audioReceiver = receivers.find(r => r.track && r.track.kind === 'audio');
-                if (audioReceiver && audioReceiver.track) {
-                    this.attachRemoteStream(new MediaStream([audioReceiver.track]));
+            if (!this.remoteAudio?.srcObject) {
+                try {
+                    const receivers = peerConnection.getReceivers?.() || [];
+                    const audioReceiver = receivers.find(r => r.track && r.track.kind === 'audio');
+                    if (audioReceiver && audioReceiver.track) {
+                        this.attachRemoteStream(new MediaStream([audioReceiver.track]));
+                    }
+                } catch (err) {
+                    // Ignore receiver inspection error
                 }
-            } catch (err) {
-                // Ignore receiver inspection error
             }
         }
 
@@ -717,6 +708,16 @@
                 });
             } catch (_) {}
 
+            if (this.remoteAudio.srcObject === stream && !this.remoteAudio.paused) {
+                return;
+            }
+
+            const currentTracks = this.remoteAudio.srcObject?.getAudioTracks?.() || [];
+            const newTracks = typeof stream.getAudioTracks === 'function' ? stream.getAudioTracks() : [];
+            if (currentTracks.length > 0 && newTracks.length > 0 && currentTracks[0] === newTracks[0] && !this.remoteAudio.paused) {
+                return;
+            }
+
             this.remoteAudio.srcObject = stream;
             this.remoteAudio.muted = false;
             this.remoteAudio.volume = 1.0;
@@ -724,16 +725,14 @@
 
             if (playPromise !== undefined) {
                 playPromise.catch(error => {
-                    if (error?.name !== 'AbortError') {
-                        this.log('Remote audio play rejected, attaching user interaction unlocker', {
-                            message: namespace.safeError(error),
-                        });
-                        const unlock = () => {
-                            this.remoteAudio.play().catch(() => {});
-                            document.removeEventListener('click', unlock);
-                        };
-                        document.addEventListener('click', unlock, { once: true });
-                    }
+                    this.log('Remote audio play rejected, attaching user interaction unlocker', {
+                        message: namespace.safeError(error),
+                    });
+                    const unlock = () => {
+                        this.remoteAudio.play().catch(() => {});
+                        document.removeEventListener('click', unlock);
+                    };
+                    document.addEventListener('click', unlock, { once: true });
                 });
             }
         }
