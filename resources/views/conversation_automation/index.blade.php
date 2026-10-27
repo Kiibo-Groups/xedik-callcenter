@@ -11,8 +11,18 @@
 @endif
 
 <div class="card">
-    <div class="card-header">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
         <span class="card-title"><i class="bi bi-robot icon-primary"></i> Automation Channels</span>
+        @if($isSuperAdmin && $tenants->count() > 1)
+        <div style="display:flex;align-items:center;gap:8px;">
+            <label class="form-label" style="margin:0;font-size:12px;color:var(--text-muted);font-weight:600;">Tenant:</label>
+            <select class="form-control form-control-sm" style="width:auto;min-width:200px;" onchange="window.location.href='{{ route('admin.conversation-automation.index') }}?tenant_id=' + this.value;">
+                @foreach($tenants as $t)
+                    <option value="{{ $t->id }}" {{ $tenantId == $t->id ? 'selected' : '' }}>{{ $t->name }} (ID: {{ $t->id }})</option>
+                @endforeach
+            </select>
+        </div>
+        @endif
     </div>
     <div class="table-wrapper">
         <table>
@@ -90,6 +100,7 @@
         </div>
         <form method="POST" id="automationChannelForm" action="">
             @csrf @method('PUT')
+            <input type="hidden" name="tenant_id" value="{{ $tenantId }}">
             <div class="modal-body">
                 <div class="form-group check-row">
                     <input type="checkbox" id="automation_enabled" name="enabled" value="1" style="width:16px;height:16px;">

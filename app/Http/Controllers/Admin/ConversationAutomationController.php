@@ -12,11 +12,17 @@ use Illuminate\View\View;
 
 class ConversationAutomationController extends Controller
 {
-    public function index(): View
+    public function index(Request $request): View
     {
         abort_unless(auth()->user()->hasPermission('manage_conversation_automation'), 403);
 
-        $tenantId = auth()->user()->tenant_id;
+        $isSuperAdmin = auth()->user()->isSuperAdmin();
+        $tenants      = $isSuperAdmin ? \App\Models\Tenant::orderBy('name')->get() : collect();
+
+        $tenantId = auth()->user()->tenant_id
+            ?? ($request->filled('tenant_id') ? (int) $request->query('tenant_id') : null)
+            ?? session('tenant_id')
+            ?? ($tenants->first()?->id ?? 2);
 
         $rows = ConversationAutomationChannel::where('tenant_id', $tenantId)
             ->get()
@@ -35,7 +41,7 @@ class ConversationAutomationController extends Controller
             ];
         });
 
-        return view('conversation_automation.index', compact('channels'));
+        return view('conversation_automation.index', compact('channels', 'isSuperAdmin', 'tenants', 'tenantId'));
     }
 
     public function update(Request $request, string $channel): RedirectResponse
@@ -49,9 +55,13 @@ class ConversationAutomationController extends Controller
             'auth_type'   => 'required|in:none,api_key',
             'api_key'     => 'nullable|string|max:255',
             'timeout_ms'  => 'nullable|integer|min:1000|max:30000',
+            'tenant_id'   => 'nullable|exists:tenants,id',
         ]);
 
-        $tenantId = auth()->user()->tenant_id;
+        $tenantId = auth()->user()->tenant_id
+            ?? ($request->filled('tenant_id') ? (int) $request->input('tenant_id') : null)
+            ?? session('tenant_id')
+            ?? (\App\Models\Tenant::first()?->id ?? 2);
 
         $row = ConversationAutomationChannel::firstOrNew([
             'tenant_id' => $tenantId,
@@ -71,7 +81,7 @@ class ConversationAutomationController extends Controller
 
         $row->save();
 
-        return redirect()->route('admin.conversation-automation.index')
+        return redirect()->route('admin.conversation-automation.index', ['tenant_id' => $tenantId])
             ->with('success', 'Automation settings for "' . ucfirst($channel) . '" updated.');
     }
 }
