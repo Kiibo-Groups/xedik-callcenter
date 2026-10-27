@@ -21,6 +21,13 @@
     @csrf
     @if($script->exists) @method('PUT') @endif
 
+    <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;">
+        <span style="font-size:20px;">🤖</span>
+        <div style="font-size:13px;color:var(--text-primary);line-height:1.4;">
+            <strong>Sincronización con Voicebot IA:</strong> Al guardar cambios en este guion, el contenido y la frase indicada en <code>SALUDO INICIAL: "..."</code> se sincronizan automáticamente en tiempo real con el Asesor de Voz en ElevenLabs.
+        </div>
+    </div>
+
     <div class="card" style="padding:24px;margin-bottom:16px;">
         <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:16px;">
             Script Settings
