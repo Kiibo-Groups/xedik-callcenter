@@ -583,6 +583,7 @@ Route::prefix('api/webchat')->middleware('throttle:30,1')->group(function () {
     Route::post('{publicToken}/{sessionToken}/close',          [\App\Http\Controllers\Webchat\PublicController::class, 'close']);
     Route::get('{publicToken}/{sessionToken}/messages',        [\App\Http\Controllers\Webchat\PublicController::class, 'messages']);
 });
+
 Route::get('webchat/widget.js',      [\App\Http\Controllers\Webchat\PublicController::class, 'widget']);
 Route::get('webchat/emoji-data',     function () {
     $path = public_path('js/vendor/emoji-mart/data.json');

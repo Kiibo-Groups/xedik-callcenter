@@ -48,6 +48,18 @@
         </div>
     </div>
 
+    <div class="sidebar-section">
+        <div class="sidebar-section-label">Inicio</div>
+        <nav>
+            <div class="nav-item">
+                <a href="{{ route('./') }}" class="nav-link" title="Home">
+                    <i class="bi bi-building"></i>
+                    <span class="nav-link-text">Home</span>
+                </a>
+            </div>
+        </nav>
+    </div>
+
     @php 
         $authUser = Auth::user();
         $moduleLabels = [
