@@ -52,7 +52,7 @@
         <div class="sidebar-section-label">Inicio</div>
         <nav>
             <div class="nav-item">
-                <a href="{{ route('./') }}" class="nav-link" title="Home">
+                <a href="./" class="nav-link" title="Home">
                     <i class="bi bi-building"></i>
                     <span class="nav-link-text">Home</span>
                 </a>
