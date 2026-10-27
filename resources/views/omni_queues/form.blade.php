@@ -170,7 +170,22 @@
 
         <div class="tab-panels">
         <div id="tab-general" class="tab-panel {{ $initialTab === 'general' ? 'active' : '' }}">
-            <div class="section-title">General</div>
+            @if($isTechnicalUser && !empty($tenants) && $tenants->isNotEmpty())
+            <div style="margin-bottom:16px;">
+                <label class="form-label">Tenant</label>
+                <select name="tenant_id" id="tenantSelect" class="form-control" style="max-width:420px;">
+                    <option value="">Auto-detect from Campaign (Recommended)</option>
+                    @foreach($tenants as $t)
+                        <option value="{{ $t->id }}" {{ (int) old('tenant_id', $queue->tenant_id) === (int) $t->id ? 'selected' : '' }}>
+                            {{ $t->name }}
+                        </option>
+                    @endforeach
+                </select>
+                <p class="muted-help">The queue will automatically belong to the tenant of the campaign selected below.</p>
+                @error('tenant_id') <div style="color:#dc2626;font-size:12px;margin-top:4px;">{{ $message }}</div> @enderror
+            </div>
+            @endif
+
             <div class="queue-grid-2" style="margin-bottom:16px;">
                 <div>
                     <label class="form-label">Queue Name <span style="color:#dc2626;">*</span></label>
@@ -196,7 +211,7 @@
                         <option value="">None</option>
                         @foreach($campaigns as $campaign)
                             <option value="{{ $campaign->id }}" {{ (int) $selectedCampaignId === (int) $campaign->id ? 'selected' : '' }}>
-                                {{ $campaign->name }}
+                                {{ $campaign->name }} @if($isTechnicalUser && $campaign->tenant) [{{ $campaign->tenant->name }}] @endif
                             </option>
                         @endforeach
                     </select>

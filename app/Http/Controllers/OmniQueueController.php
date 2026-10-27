@@ -52,6 +52,14 @@ class OmniQueueController extends Controller
         $campaigns = $campaignsQuery->orderBy('name')->get();
         $scripts   = Script::where('is_active', true)->orderBy('name')->get();
 
+        $defaultTenantId = $user->isSuperAdmin() ? 2 : (int) $user->tenant_id;
+        if ($selectedCampaignId) {
+            $camp = Campaign::withoutGlobalScopes()->find($selectedCampaignId);
+            if ($camp?->tenant_id) {
+                $defaultTenantId = (int) $camp->tenant_id;
+            }
+        }
+
         return view('omni_queues.form', [
             'queue'     => new OmniQueue(),
             'agents'    => $agents,
@@ -61,8 +69,9 @@ class OmniQueueController extends Controller
             'queueAgents' => collect(),
             'ineligibleAssignedAgents' => collect(),
             'selectedCampaignId' => $selectedCampaignId,
+            'tenants' => $user->isSuperAdmin() ? \App\Models\Tenant::orderBy('name')->get() : collect(),
             'defaultVoiceQueueName' => $this->queueNameResolver->defaultNameFor(
-                (int) auth()->user()->tenant_id,
+                $defaultTenantId,
                 'queue'
             ),
         ]);
@@ -72,6 +81,20 @@ class OmniQueueController extends Controller
     {
         $data = $this->validated($request);
         $this->validateAgentAssignmentsForCampaign($request, $data['campaign_id'] ?? null);
+
+        if (empty($data['tenant_id'])) {
+            if (!empty($data['campaign_id'])) {
+                $campaign = Campaign::withoutGlobalScopes()->find($data['campaign_id']);
+                if ($campaign) {
+                    $data['tenant_id'] = (int) $campaign->tenant_id;
+                }
+            }
+            if (empty($data['tenant_id'])) {
+                $data['tenant_id'] = $request->input('tenant_id')
+                    ? (int) $request->input('tenant_id')
+                    : (auth()->user()->tenant_id ? (int) auth()->user()->tenant_id : 2);
+            }
+        }
 
         [$queue, $voiceConfigurationChanged] = DB::transaction(function () use ($request, $data): array {
             $queue = OmniQueue::create($data);
@@ -254,6 +277,7 @@ class OmniQueueController extends Controller
         }
 
         $data = $request->validate([
+            'tenant_id'        => 'nullable|integer|exists:tenants,id',
             'name'             => 'required|string|max:100',
             'type'             => 'required|in:email,chat,voice,omni',
             'assignment_mode'  => 'required|in:round_robin,least_busy,direct',

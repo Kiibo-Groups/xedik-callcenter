@@ -12,7 +12,7 @@ class Program extends Model
 {
     use BelongsToTenant;
 
-    protected $fillable = ['name', 'slug', 'is_active'];
+    protected $fillable = ['tenant_id', 'name', 'slug', 'is_active'];
 
     protected $casts = [
         'is_active' => 'boolean',

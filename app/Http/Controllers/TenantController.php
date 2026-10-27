@@ -117,11 +117,33 @@ class TenantController extends Controller
             'permission_ids.*' => 'integer|exists:permissions,id',
         ]);
 
+        $grantedIds = collect($validated['permission_ids'] ?? [])->map(fn($id) => (int) $id);
         $syncData = [];
-        foreach ($validated['permission_ids'] ?? [] as $permissionId) {
-            $syncData[(int) $permissionId] = ['enabled_at' => now()];
+        foreach ($grantedIds as $permissionId) {
+            $syncData[$permissionId] = ['enabled_at' => now()];
         }
         $tenant->enabledPermissions()->sync($syncData);
+
+        // Synchronize admin role of this tenant so admin gets all newly granted permissions
+        $adminRole = \App\Models\Role::withoutGlobalScopes()
+            ->where('tenant_id', $tenant->id)
+            ->where('name', 'admin')
+            ->first();
+
+        if ($adminRole) {
+            $adminRole->permissions()->sync($grantedIds);
+        }
+
+        // For other roles in this tenant (e.g. agent), remove permissions that were revoked from tenant
+        $otherRoles = \App\Models\Role::withoutGlobalScopes()
+            ->where('tenant_id', $tenant->id)
+            ->where('name', '!=', 'admin')
+            ->get();
+
+        foreach ($otherRoles as $otherRole) {
+            $currentPermIds = $otherRole->permissions()->pluck('permissions.id');
+            $otherRole->permissions()->sync($currentPermIds->intersect($grantedIds));
+        }
 
         return redirect()->route('tenants.permissions', $tenant)
             ->with('success', "Permissions updated for {$tenant->name}.");

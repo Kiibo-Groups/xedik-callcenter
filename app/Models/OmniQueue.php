@@ -22,6 +22,7 @@ class OmniQueue extends Model
     ];
 
     protected $fillable = [
+        'tenant_id',
         'name',
         'type',
         'assignment_mode',

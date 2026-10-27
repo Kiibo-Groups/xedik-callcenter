@@ -49,6 +49,9 @@ document.querySelectorAll('.edit-program-btn').forEach(function (btn) {
         document.getElementById('editName').value        = this.dataset.name;
         document.getElementById('editSlugPreview').value = this.dataset.slug;
         document.getElementById('editIsActive').checked  = this.dataset.isActive === '1';
+        if (document.getElementById('editTenantId')) {
+            document.getElementById('editTenantId').value = this.dataset.tenantId || '';
+        }
         document.getElementById('editForm').action       = '/programs/' + this.dataset.id;
         resetEditBtn();
         openModal('editModal');

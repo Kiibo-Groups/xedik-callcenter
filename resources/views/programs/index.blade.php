@@ -57,6 +57,7 @@
                                 data-id="{{ $program->id }}"
                                 data-name="{{ $program->name }}"
                                 data-slug="{{ $program->slug }}"
+                                data-tenant-id="{{ $program->tenant_id }}"
                                 data-is-active="{{ $program->is_active ? '1' : '0' }}">
                                 <i class="bi bi-pencil"></i> Edit
                             </button>
@@ -93,6 +94,20 @@
         <form method="POST" action="{{ route('programs.store') }}" id="createForm">
             @csrf
             <div class="modal-body">
+                @if($isSuperAdmin)
+                <div class="form-group">
+                    <label class="form-label">Tenant <span style="color:#dc2626;">*</span></label>
+                    <select name="tenant_id" id="createTenantId" class="form-control" required>
+                        <option value="">Select Tenant...</option>
+                        @foreach($tenants as $t)
+                            <option value="{{ $t->id }}" {{ old('tenant_id') == $t->id ? 'selected' : '' }}>{{ $t->name }}</option>
+                        @endforeach
+                    </select>
+                    @error('tenant_id')
+                        <div class="field-error">{{ $message }}</div>
+                    @enderror
+                </div>
+                @endif
                 <div class="form-group">
                     <label class="form-label">Name *</label>
                     <input type="text" name="name" id="createName" class="form-control" required
@@ -127,6 +142,20 @@
         <form method="POST" id="editForm">
             @csrf @method('PUT')
             <div class="modal-body">
+                @if($isSuperAdmin)
+                <div class="form-group">
+                    <label class="form-label">Tenant <span style="color:#dc2626;">*</span></label>
+                    <select name="tenant_id" id="editTenantId" class="form-control" required>
+                        <option value="">Select Tenant...</option>
+                        @foreach($tenants as $t)
+                            <option value="{{ $t->id }}">{{ $t->name }}</option>
+                        @endforeach
+                    </select>
+                    @error('tenant_id')
+                        <div class="field-error">{{ $message }}</div>
+                    @enderror
+                </div>
+                @endif
                 <div class="form-group">
                     <label class="form-label">Name *</label>
                     <input type="text" name="name" id="editName" class="form-control" required>

@@ -12,8 +12,17 @@ trait BelongsToTenant
     {
         static::addGlobalScope(new TenantScope);
         static::creating(function ($model) {
-            if (auth()->check() && empty($model->tenant_id) && !auth()->user()->is_superadmin) {
-                $model->tenant_id = auth()->user()->tenant_id;
+            if (empty($model->tenant_id)) {
+                if (request()->filled('tenant_id')) {
+                    $model->tenant_id = (int) request('tenant_id');
+                } elseif (!empty($model->campaign_id)) {
+                    $camp = \App\Models\Campaign::withoutGlobalScopes()->find($model->campaign_id);
+                    if ($camp?->tenant_id) {
+                        $model->tenant_id = (int) $camp->tenant_id;
+                    }
+                } elseif (auth()->check() && !auth()->user()->is_superadmin && auth()->user()->tenant_id) {
+                    $model->tenant_id = (int) auth()->user()->tenant_id;
+                }
             }
         });
     }
