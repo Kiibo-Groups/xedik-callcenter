@@ -65,6 +65,12 @@ class ConversationAutomationController extends Controller
 
         $conv->update($updates);
 
+        try {
+            \Illuminate\Support\Facades\Artisan::call('conversations:assign');
+        } catch (\Throwable $e) {
+            Log::warning(self::LOG_HANDOFF . ' instant assign failed: ' . $e->getMessage());
+        }
+
         Log::info(self::LOG_HANDOFF, [
             'tenant_id'       => $tenantId,
             'conversation_id' => $conv->id,
