@@ -2286,6 +2286,31 @@ class ConsoleController extends Controller
                 ],
             ]);
 
+        // If error 132001 (Template does not exist in the translation), attempt fallback with common variants
+        if ($response->failed() && str_contains($response->body(), '132001')) {
+            $fallbackLangs = array_values(array_filter(['es_MX', 'es', 'es_ES', 'es_LA', 'en_US', 'en'], fn($l) => $l !== $langCode));
+            foreach ($fallbackLangs as $fallbackLang) {
+                $retryResp = \Illuminate\Support\Facades\Http::withToken($account->access_token)
+                    ->post("{$apiBase}/{$account->phone_number_id}/messages", [
+                        'messaging_product' => 'whatsapp',
+                        'to'                => $request->phone,
+                        'type'              => 'template',
+                        'template'          => [
+                            'name'     => $request->template_name,
+                            'language' => ['code' => $fallbackLang],
+                        ],
+                    ]);
+
+                if ($retryResp->successful()) {
+                    $response = $retryResp;
+                    if ($template && $template->language !== $fallbackLang) {
+                        $template->update(['language' => $fallbackLang]);
+                    }
+                    break;
+                }
+            }
+        }
+
         if ($response->failed()) {
             return response()->json(['error' => 'WhatsApp API error: ' . $response->body()], 500);
         }
