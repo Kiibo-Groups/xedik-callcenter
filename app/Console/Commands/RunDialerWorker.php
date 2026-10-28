@@ -117,9 +117,9 @@ class RunDialerWorker extends Command
                 $this->info("Dialing lead #{$item->dialer_lead_id} (Phone: {$dialExten}) for Campaign #{$campaignId}...");
 
                 // Resolve voicebot agent according to campaign tenant
-                $agentId = 'agent_0001m5h3zv32egsb2mfmgnd6a395'; // default Xedik Marto
+                $agentId = 'agent_0001m5h3zv32egsb2mfmgnd6a395'; // default Xedik Carlos
                 if ($campaign && $campaign->tenant_id == 5) {
-                    $agentId = 'agent_2101m5xst5cgf1gv86jxhf2an2nd'; // FOU Predator Carlos
+                    $agentId = 'agent_2101m5xst5cgf1gv86jxhf2an2nd'; // FOU Predator Eva
                 }
 
                 // Execute Asterisk originate

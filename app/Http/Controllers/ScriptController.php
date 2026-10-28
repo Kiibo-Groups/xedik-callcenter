@@ -304,10 +304,13 @@ class ScriptController extends Controller
     {
         // Check if script belongs to FOU (tenant_id = 5) or Xedik
         $agentId = null;
+        $defaultVoiceId = 'ojGau167OE7nUATM1xDa'; // Carlos
         if ($script->tenant_id == 5 || (int) $script->campaign_id === 5) {
-            $agentId = 'agent_2101m5xst5cgf1gv86jxhf2an2nd'; // FOU Carlos
+            $agentId        = 'agent_2101m5xst5cgf1gv86jxhf2an2nd'; // FOU Eva
+            $defaultVoiceId = 'p7sm2zw5Us66lZr2brDW';                // Eva
         } elseif ($script->tenant_id == 2 && str_contains(strtolower($script->name), 'ia')) {
-            $agentId = 'agent_0001m5h3zv32egsb2mfmgnd6a395'; // Xedik Marto
+            $agentId        = 'agent_0001m5h3zv32egsb2mfmgnd6a395'; // Xedik Carlos
+            $defaultVoiceId = 'ojGau167OE7nUATM1xDa';                // Carlos
         }
 
         if (!$agentId || empty($script->body)) {
@@ -338,7 +341,7 @@ class ScriptController extends Controller
                         ],
                     ],
                     'tts' => [
-                        'voice_id'                   => env('ELEVENLABS_VOICE_ID', '94zOad0g7T7K4oa7zhDq'),
+                        'voice_id'                   => $defaultVoiceId,
                         'agent_output_audio_format' => 'pcm_8000',
                         'optimize_streaming_latency' => 2,
                     ],
