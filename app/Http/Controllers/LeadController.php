@@ -281,11 +281,29 @@ class LeadController extends Controller
             ->where('is_active', true)
             ->get();
 
+        if ($waAccounts->isEmpty()) {
+            $waAccounts = \App\Models\WhatsappAccount::withoutGlobalScopes()
+                ->where('is_active', true)
+                ->get();
+        }
+
+        $accountTenantIds = $waAccounts->pluck('tenant_id')->unique()->filter()->values();
+
         $waTemplates = \App\Models\WhatsappTemplate::withoutGlobalScopes()
-            ->where('tenant_id', $leadTenantId)
+            ->where(function ($q) use ($leadTenantId, $accountTenantIds) {
+                $q->where('tenant_id', $leadTenantId)
+                  ->orWhereIn('tenant_id', $accountTenantIds);
+            })
             ->where('is_active', true)
             ->orderBy('display_name')
             ->get(['id', 'name', 'display_name', 'language', 'body_preview']);
+
+        if ($waTemplates->isEmpty()) {
+            $waTemplates = \App\Models\WhatsappTemplate::withoutGlobalScopes()
+                ->where('is_active', true)
+                ->orderBy('display_name')
+                ->get(['id', 'name', 'display_name', 'language', 'body_preview']);
+        }
 
         return view('leads.show', compact('lead', 'statuses', 'agents', 'history', 'dispositions', 'waAccounts', 'waTemplates'));
     }

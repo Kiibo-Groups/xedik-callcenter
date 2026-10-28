@@ -338,6 +338,7 @@ class ScriptController extends Controller
                         ],
                     ],
                     'tts' => [
+                        'voice_id'                   => env('ELEVENLABS_VOICE_ID', '94zOad0g7T7K4oa7zhDq'),
                         'agent_output_audio_format' => 'pcm_8000',
                         'optimize_streaming_latency' => 2,
                     ],

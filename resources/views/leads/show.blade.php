@@ -11,7 +11,7 @@
 @endsection
 
 @section('content')
-@php $canEdit = Auth::user()->isAdmin() || $lead->assigned_to === Auth::id(); @endphp
+@php $canEdit = Auth::user()->isAdmin() || Auth::user()->isSuperAdmin() || $lead->assigned_to === Auth::id(); @endphp
 
 {{-- LEAD HEADER CARD --}}
 <div class="lead-detail-header">
@@ -28,7 +28,7 @@
                 <div class="lead-meta-item">
                     <i class="bi bi-telephone"></i>
                     <a href="tel:{{ $lead->phone }}" style="color:inherit;text-decoration:none;">{{ $lead->phone }}</a>
-                    @if($canEdit && $waAccounts->count())
+                    @if($canEdit)
                         <a href="javascript:void(0)" onclick="openLeadWaModal('{{ $lead->phone }}')" title="Send WhatsApp" style="color:#25D366;margin-left:5px;display:inline-flex;align-items:center;text-decoration:none;">
                             <i class="bi bi-whatsapp"></i>
                         </a>
@@ -39,7 +39,7 @@
                 <div class="lead-meta-item">
                     <i class="bi bi-telephone-plus"></i>
                     <a href="tel:{{ $lead->phone_2 }}" style="color:inherit;text-decoration:none;">{{ $lead->phone_2 }}</a>
-                    @if($canEdit && $waAccounts->count())
+                    @if($canEdit)
                         <a href="javascript:void(0)" onclick="openLeadWaModal('{{ $lead->phone_2 }}')" title="Send WhatsApp" style="color:#25D366;margin-left:5px;display:inline-flex;align-items:center;text-decoration:none;">
                             <i class="bi bi-whatsapp"></i>
                         </a>
@@ -369,7 +369,7 @@
                         </button>
                     @endif
                 @endif
-                @if(($lead->phone || $lead->phone_2) && $waAccounts->count())
+                @if($lead->phone || $lead->phone_2)
                     @if($canEdit)
                         <button class="btn btn-outline" style="width:100%;justify-content:center;color:#128C7E;border-color:#25D366;background:rgba(37,211,102,0.06);"
                                 onclick="openLeadWaModal()">
