@@ -1632,6 +1632,7 @@ async function syncActiveConversationThread(source) {
                 _waAppendMessage(chatArea, m);
             } else {
                 thread.insertAdjacentHTML('afterbegin', renderMessage(m));
+                mountEmailFrame(m);
             }
         });
 
@@ -3002,6 +3003,9 @@ function renderConversation(data) {
         const chatArea = document.getElementById('waChatArea');
         if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
     } else {
+        if (messages && messages.length) {
+            messages.forEach(m => mountEmailFrame(m));
+        }
         setTimeout(() => {
             if (window.joditEditor) {
                 window.joditEditor.destruct();
@@ -3092,6 +3096,16 @@ function toggleMessage(msgId) {
         body.style.overflow = '';
         body.dataset.collapsed = 'false';
         icon.style.transform = 'rotate(0deg)';
+        const frame = body.querySelector('iframe.email-frame');
+        if (frame) {
+            try {
+                const doc = frame.contentDocument || frame.contentWindow?.document;
+                if (doc && doc.body) {
+                    const h = Math.max(doc.body.scrollHeight || 0, doc.documentElement?.scrollHeight || 0, doc.body.offsetHeight || 0, 60);
+                    frame.style.height = (h + 16) + 'px';
+                }
+            } catch(e) {}
+        }
     } else {
         body.style.height = '0';
         body.style.overflow = 'hidden';
@@ -3270,6 +3284,7 @@ function _waAppendMessage(chatArea, m) {
 function renderMessage(m) {
     const isOutbound = m.direction === 'outbound';
     const msgId = `msg-body-${m.id}`;
+    const hasHtml = Boolean(m.body_html && m.body_html.trim());
     return `
         <div data-msg-id="${m.id}" style="margin-bottom:12px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:#ffffff;">
             <div onclick="toggleMessage('${msgId}')" style="display:flex;align-items:center;gap:10px;padding:10px 14px;min-height:52px;cursor:pointer;background:var(--bg-card);"
@@ -3280,15 +3295,15 @@ function renderMessage(m) {
                 </div>
                 <div style="flex:1;min-width:0;">
                     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                        <span style="font-size:13px;font-weight:600;color:var(--text-strong);">${m.from_email}</span>
-                        <span style="font-size:11px;color:var(--text-muted);">→ ${m.to_email}</span>
+                        <span style="font-size:13px;font-weight:600;color:var(--text-strong);">${_escHtml(m.from_email || '')}</span>
+                        <span style="font-size:11px;color:var(--text-muted);">→ ${_escHtml(m.to_email || '')}</span>
                         <span style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:99px;background:${isOutbound ? 'var(--bg-th)' : '#dcfce7'};color:${isOutbound ? 'var(--primary)' : '#16a34a'};">
                             ${isOutbound ? '↑ OUTBOUND' : '↓ INBOUND'}
                         </span>
                     </div>
                     ${m.cc_emails ? `
                         <div style="font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:500px;padding-top:2px;">
-                            CC: ${m.cc_emails}
+                            CC: ${_escHtml(m.cc_emails)}
                         </div>
                     ` : ''}
                 </div>
@@ -3296,12 +3311,18 @@ function renderMessage(m) {
                 <i class="bi bi-chevron-down" id="icon-${msgId}" style="font-size:11px;color:var(--text-muted);transition:transform .2s;flex-shrink:0;"></i>
             </div>
             <div id="${msgId}" style="border-top:1px solid var(--border);">
-                <div class="msg-html-body" style="padding:12px 16px;font-size:13px;line-height:1.6;color:#334155;word-break:break-word;">${m.body_html || (m.body_text ? m.body_text.replace(/\n/g, '<br>') : '')}</div>
+                ${hasHtml ? `
+                    <div class="msg-html-body" style="padding:0;overflow:hidden;background:#ffffff;">
+                        <iframe id="email-frame-${m.id}" class="email-frame" style="width:100%;border:none;min-height:80px;display:block;background:#ffffff;" scrolling="no"></iframe>
+                    </div>
+                ` : `
+                    <div class="msg-html-body" style="padding:12px 16px;font-size:13px;line-height:1.6;color:#334155;word-break:break-word;white-space:pre-wrap;">${_escHtml(m.body_text || '(No content)')}</div>
+                `}
                 ${m.attachments?.length ? `
                     <div style="display:flex;gap:8px;padding:8px 14px 12px;flex-wrap:wrap;border-top:1px solid var(--border);">
                         ${m.attachments.map(a => `
                             <a href="/attachments/${a.id}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;color:var(--text-mid);text-decoration:none;">
-                                <i class="bi bi-paperclip"></i> ${a.filename}
+                                <i class="bi bi-paperclip"></i> ${_escHtml(a.filename)}
                             </a>
                         `).join('')}
                     </div>
@@ -3309,6 +3330,81 @@ function renderMessage(m) {
             </div>
         </div>
     `;
+}
+
+function mountEmailFrame(m) {
+    if (!m || !m.body_html) return;
+    const frame = document.getElementById(`email-frame-${m.id}`);
+    if (!frame) return;
+
+    const rawHtml = m.body_html;
+    const baseStyle = `
+        <meta charset="utf-8">
+        <base target="_blank">
+        <style>
+            html, body {
+                margin: 0 !important;
+                padding: 12px 16px !important;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                font-size: 13px;
+                line-height: 1.6;
+                color: #334155;
+                word-break: break-word;
+                background: #ffffff !important;
+                box-sizing: border-box !important;
+                max-width: 100% !important;
+            }
+            img { max-width: 100% !important; height: auto; }
+            table { max-width: 100% !important; }
+        </style>
+    `;
+
+    let finalDoc = rawHtml;
+    if (/<head[^>]*>/i.test(rawHtml)) {
+        finalDoc = rawHtml.replace(/<head[^>]*>/i, `$&${baseStyle}`);
+    } else {
+        finalDoc = `<!DOCTYPE html><html><head>${baseStyle}</head><body>${rawHtml}</body></html>`;
+    }
+
+    frame.srcdoc = finalDoc;
+
+    const resizeFrame = () => {
+        try {
+            const doc = frame.contentDocument || frame.contentWindow?.document;
+            if (!doc || !doc.body) return;
+            const h = Math.max(
+                doc.body.scrollHeight || 0,
+                doc.documentElement?.scrollHeight || 0,
+                doc.body.offsetHeight || 0,
+                doc.documentElement?.offsetHeight || 0,
+                60
+            );
+            frame.style.height = (h + 16) + 'px';
+        } catch (e) {}
+    };
+
+    frame.onload = function() {
+        resizeFrame();
+        try {
+            const doc = frame.contentDocument || frame.contentWindow?.document;
+            if (doc) {
+                if (window.ResizeObserver && doc.body) {
+                    const ro = new ResizeObserver(() => resizeFrame());
+                    ro.observe(doc.body);
+                }
+                doc.querySelectorAll('img').forEach(img => {
+                    if (!img.complete) {
+                        img.addEventListener('load', resizeFrame);
+                        img.addEventListener('error', resizeFrame);
+                    }
+                });
+            }
+        } catch (e) {}
+    };
+
+    setTimeout(resizeFrame, 150);
+    setTimeout(resizeFrame, 500);
+    setTimeout(resizeFrame, 1200);
 }
 
 let currentReplyMode = 'reply';
@@ -3398,6 +3494,7 @@ async function sendForward(conversationId, forwardTo) {
                 attachments: data.attachments || [],
             };
             thread.insertAdjacentHTML('afterbegin', renderMessage(newMessage));
+            mountEmailFrame(newMessage);
             thread.scrollTop = 0;
             if (data.message_id) _knownMsgIds.add(Number(data.message_id));
         }
@@ -3504,6 +3601,7 @@ async function sendReply(conversationId) {
                 attachments: data.attachments || [],
             };
             thread.insertAdjacentHTML('afterbegin', renderMessage(newMessage));
+            mountEmailFrame(newMessage);
             thread.scrollTop = 0;
             if (data.message_id) _knownMsgIds.add(Number(data.message_id));
         }
@@ -3567,6 +3665,7 @@ async function sendReplyAll(conversationId, ccEmails) {
                 attachments: data.attachments || []
             };
             thread.insertAdjacentHTML('afterbegin', renderMessage(newMessage));
+            mountEmailFrame(newMessage);
             thread.scrollTop = 0;
             if (data.message_id) _knownMsgIds.add(Number(data.message_id));
         }
@@ -4741,6 +4840,7 @@ window.agentConsoleVoiceAdapter.init().catch(function () {});
                                 _waAppendMessage(chatArea, m);
                             } else {
                                 thread.insertAdjacentHTML('afterbegin', renderMessage(m));
+                                mountEmailFrame(m);
                             }
                         });
 
