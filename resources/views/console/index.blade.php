@@ -16,17 +16,19 @@
     z-index: 99999 !important;
 }
 .console-tab {
-    padding: 10px 14px;
+    padding: 8px 10px;
     border: none;
     background: none;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--text-muted);
     cursor: pointer;
     border-bottom: 2px solid transparent;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 .console-tab.active {
     color: var(--primary);
@@ -396,8 +398,8 @@
 </div>
 {{-- Notifications Chat/WhatsApp --}}
 <div style="position:relative;">
-    <button class="theme-btn" id="notifWaBtn" onclick="toggleWaNotifications()">
-        <i class="bi bi-chat-fill"></i>
+    <button class="theme-btn" id="notifWaBtn" onclick="toggleWaNotifications()" title="WhatsApp">
+        <i class="bi bi-whatsapp" style="color:#25D366;font-size:14px;"></i>
         @php $initUnreadWa = $conversations->where('status','active')->whereNull('read_at')->whereIn('channel',['whatsapp','chat'])->count(); @endphp
         @if($initUnreadWa > 0)
         <span id="waBadge" style="position:absolute;top:-2px;right:-2px;width:16px;height:16px;background:#0F6E56;border-radius:50%;font-size:9px;font-weight:700;color:white;display:flex;align-items:center;justify-content:center;">
@@ -407,7 +409,9 @@
     </button>
     <div id="notifWaDropdown" style="display:none;position:absolute;top:51px;right:0;width:320px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-lg);z-index:999;">
         <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
-            <span style="font-size:14px;font-weight:600;color:var(--text-strong);">Chat</span>
+            <span style="font-size:14px;font-weight:600;color:var(--text-strong);display:flex;align-items:center;gap:6px;">
+                <i class="bi bi-whatsapp" style="color:#25D366;"></i> WhatsApp & Chat
+            </span>
             <a href="#" onclick="markAllWaRead()" style="font-size:12px;color:var(--primary);">Mark all read</a>
         </div>
         <div id="waNotifList" style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">No new messages</div>
@@ -439,15 +443,21 @@
     {{-- COLUMNA IZQUIERDA — Lista de conversaciones --}}
     <div class="console-inbox-col" style="border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;background:var(--bg-card);overflow:hidden;width:280px;flex-shrink:0;">
         {{-- Tabs --}}
-        <div style="display:flex;border-bottom:1px solid var(--border);padding:0 8px;">
-            <button class="console-tab active" data-tab="all" onclick="filterTab('all')">
+        <div style="display:flex;border-bottom:1px solid var(--border);padding:0 6px;overflow-x:auto;scrollbar-width:none;">
+            <button class="console-tab active" data-tab="all" onclick="filterTab('all')" title="All">
                 <i class="bi bi-grid"></i> All
             </button>
-            <button class="console-tab" data-tab="email" onclick="filterTab('email')">
+            <button class="console-tab" data-tab="whatsapp" onclick="filterTab('whatsapp')" title="WhatsApp">
+                <i class="bi bi-whatsapp" style="color:#25D366;"></i> WhatsApp
+            </button>
+            <button class="console-tab" data-tab="email" onclick="filterTab('email')" title="Email">
                 <i class="bi bi-envelope"></i> Email
             </button>
-            <button class="console-tab" data-tab="chat" onclick="filterTab('chat')">
-                <i class="bi bi-chat"></i> Chat
+            <button class="console-tab" data-tab="chat" onclick="filterTab('chat')" title="Webchat">
+                <i class="bi bi-chat-dots"></i> Chat
+            </button>
+            <button class="console-tab" data-tab="sms" onclick="filterTab('sms')" title="SMS">
+                <i class="bi bi-chat-text" style="color:#f59e0b;"></i> SMS
             </button>
         </div>
 
@@ -1226,15 +1236,21 @@ window.ComposeConfig = {
                 const newLeft = document.createElement('div');
                 newLeft.style.cssText = 'border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;background:var(--bg-card);overflow:hidden;width:280px;flex-shrink:0;';
                 newLeft.innerHTML = `
-                    <div style="display:flex;border-bottom:1px solid var(--border);padding:0 8px;">
-                        <button class="console-tab active" data-tab="all" onclick="filterTab('all')">
+                    <div style="display:flex;border-bottom:1px solid var(--border);padding:0 6px;overflow-x:auto;scrollbar-width:none;">
+                        <button class="console-tab active" data-tab="all" onclick="filterTab('all')" title="All">
                             <i class="bi bi-grid"></i> All
                         </button>
-                        <button class="console-tab" data-tab="email" onclick="filterTab('email')">
+                        <button class="console-tab" data-tab="whatsapp" onclick="filterTab('whatsapp')" title="WhatsApp">
+                            <i class="bi bi-whatsapp" style="color:#25D366;"></i> WhatsApp
+                        </button>
+                        <button class="console-tab" data-tab="email" onclick="filterTab('email')" title="Email">
                             <i class="bi bi-envelope"></i> Email
                         </button>
-                        <button class="console-tab" data-tab="chat" onclick="filterTab('chat')">
-                            <i class="bi bi-chat"></i> Chat
+                        <button class="console-tab" data-tab="chat" onclick="filterTab('chat')" title="Webchat">
+                            <i class="bi bi-chat-dots"></i> Chat
+                        </button>
+                        <button class="console-tab" data-tab="sms" onclick="filterTab('sms')" title="SMS">
+                            <i class="bi bi-chat-text" style="color:#f59e0b;"></i> SMS
                         </button>
                     </div>
                     <div style="padding:10px 12px;border-bottom:1px solid var(--border);">
@@ -1796,15 +1812,21 @@ function refreshConversationList() {
                 const newLeft = document.createElement('div');
                 newLeft.style.cssText = 'border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;background:var(--bg-card);overflow:hidden;width:280px;flex-shrink:0;';
                 newLeft.innerHTML = `
-                    <div style="display:flex;border-bottom:1px solid var(--border);padding:0 8px;">
-                        <button class="console-tab active" data-tab="all" onclick="filterTab('all')">
+                    <div style="display:flex;border-bottom:1px solid var(--border);padding:0 6px;overflow-x:auto;scrollbar-width:none;">
+                        <button class="console-tab active" data-tab="all" onclick="filterTab('all')" title="All">
                             <i class="bi bi-grid"></i> All
                         </button>
-                        <button class="console-tab" data-tab="email" onclick="filterTab('email')">
+                        <button class="console-tab" data-tab="whatsapp" onclick="filterTab('whatsapp')" title="WhatsApp">
+                            <i class="bi bi-whatsapp" style="color:#25D366;"></i> WhatsApp
+                        </button>
+                        <button class="console-tab" data-tab="email" onclick="filterTab('email')" title="Email">
                             <i class="bi bi-envelope"></i> Email
                         </button>
-                        <button class="console-tab" data-tab="chat" onclick="filterTab('chat')">
-                            <i class="bi bi-chat"></i> Chat
+                        <button class="console-tab" data-tab="chat" onclick="filterTab('chat')" title="Webchat">
+                            <i class="bi bi-chat-dots"></i> Chat
+                        </button>
+                        <button class="console-tab" data-tab="sms" onclick="filterTab('sms')" title="SMS">
+                            <i class="bi bi-chat-text" style="color:#f59e0b;"></i> SMS
                         </button>
                     </div>
                     <div style="padding:10px 12px;border-bottom:1px solid var(--border);">
@@ -2440,10 +2462,15 @@ function applyConvFilters(tab, q) {
         let tabMatch = false;
         if (tab === 'all') {
             tabMatch = true;
+        } else if (tab === 'whatsapp') {
+            tabMatch = item.classList.contains('whatsapp');
+        } else if (tab === 'sms') {
+            tabMatch = item.classList.contains('sms');
+        } else if (tab === 'email') {
+            tabMatch = item.classList.contains('email');
         } else if (tab === 'chat') {
-            tabMatch = item.classList.contains('whatsapp') || item.classList.contains('chat')
-                    || item.classList.contains('facebook') || item.classList.contains('instagram')
-                    || item.classList.contains('sms');
+            tabMatch = item.classList.contains('chat')
+                    || item.classList.contains('facebook') || item.classList.contains('instagram');
         } else {
             tabMatch = item.classList.contains(tab);
         }
