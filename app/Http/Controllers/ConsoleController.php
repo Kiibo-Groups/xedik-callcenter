@@ -2282,8 +2282,10 @@ class ConsoleController extends Controller
         $displayPhone = \App\Helpers\PhoneHelper::formatDisplay($request->phone);
         $leadName     = $lead ? trim($lead->first_name . ' ' . $lead->last_name) : null;
 
+        $targetTenantId = Auth::user()->tenant_id ?? $account->tenant_id;
+
         $conversation = \App\Models\Conversation::create([
-            'tenant_id'           => Auth::user()->tenant_id,
+            'tenant_id'           => $targetTenantId,
             'channel'             => 'whatsapp',
             'whatsapp_account_id' => $account->id,
             'omni_queue_id'       => $account->omni_queue_id,
@@ -2301,7 +2303,7 @@ class ConsoleController extends Controller
         $bodyText = \App\Models\WhatsappTemplate::where('name', $request->template_name)->value('body_preview') ?? $request->template_name;
 
         \App\Models\Message::create([
-            'tenant_id'       => Auth::user()->tenant_id,
+            'tenant_id'       => $targetTenantId,
             'conversation_id' => $conversation->id,
             'direction'       => 'outbound',
             'from_email'      => $account->phone_number,

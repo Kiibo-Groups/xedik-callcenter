@@ -28,12 +28,22 @@
                 <div class="lead-meta-item">
                     <i class="bi bi-telephone"></i>
                     <a href="tel:{{ $lead->phone }}" style="color:inherit;text-decoration:none;">{{ $lead->phone }}</a>
+                    @if($canEdit && $waAccounts->count())
+                        <a href="javascript:void(0)" onclick="openLeadWaModal('{{ $lead->phone }}')" title="Send WhatsApp" style="color:#25D366;margin-left:5px;display:inline-flex;align-items:center;text-decoration:none;">
+                            <i class="bi bi-whatsapp"></i>
+                        </a>
+                    @endif
                 </div>
             @endif
             @if($lead->phone_2)
                 <div class="lead-meta-item">
                     <i class="bi bi-telephone-plus"></i>
                     <a href="tel:{{ $lead->phone_2 }}" style="color:inherit;text-decoration:none;">{{ $lead->phone_2 }}</a>
+                    @if($canEdit && $waAccounts->count())
+                        <a href="javascript:void(0)" onclick="openLeadWaModal('{{ $lead->phone_2 }}')" title="Send WhatsApp" style="color:#25D366;margin-left:5px;display:inline-flex;align-items:center;text-decoration:none;">
+                            <i class="bi bi-whatsapp"></i>
+                        </a>
+                    @endif
                 </div>
             @endif
             @if($lead->email)
@@ -359,6 +369,18 @@
                         </button>
                     @endif
                 @endif
+                @if(($lead->phone || $lead->phone_2) && $waAccounts->count())
+                    @if($canEdit)
+                        <button class="btn btn-outline" style="width:100%;justify-content:center;color:#128C7E;border-color:#25D366;background:rgba(37,211,102,0.06);"
+                                onclick="openLeadWaModal()">
+                            <i class="bi bi-whatsapp" style="color:#25D366;"></i> Send WhatsApp
+                        </button>
+                    @else
+                        <button class="btn btn-outline" style="width:100%;justify-content:center;opacity:.5;cursor:not-allowed;" disabled>
+                            <i class="bi bi-whatsapp"></i> Send WhatsApp
+                        </button>
+                    @endif
+                @endif
                 @if($lead->email)
                     @if($canEdit)
                         <button onclick="openCompose({ leadId: {{ $lead->id }}, leadName: '{{ addslashes($lead->full_name) }}', to: '{{ $lead->email }}' })"
@@ -547,6 +569,102 @@
     </div>
 </div>
 
+{{-- ── WHATSAPP TEMPLATE MODAL ── --}}
+<div class="modal-overlay" id="leadWaModal">
+    <div class="modal" style="max-width:500px;">
+        <div class="modal-header" style="background:#075e54;color:#fff;border-top-left-radius:var(--radius-md);border-top-right-radius:var(--radius-md);">
+            <div class="modal-title" style="color:#fff;display:flex;align-items:center;gap:8px;">
+                <i class="bi bi-whatsapp" style="color:#25D366;font-size:18px;"></i> Send WhatsApp
+            </div>
+            <button class="modal-close" onclick="closeModal('leadWaModal')" style="color:#fff;opacity:.8;">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:20px;">
+            @if($waAccounts->isEmpty())
+                <div style="text-align:center;padding:24px 12px;">
+                    <i class="bi bi-exclamation-triangle" style="font-size:32px;color:var(--warning);"></i>
+                    <p style="margin-top:12px;font-size:14px;color:var(--text-strong);font-weight:600;">No WhatsApp accounts connected</p>
+                    <p style="font-size:12px;color:var(--text-muted);">Please configure a WhatsApp Business Cloud account in your tenant settings to start sending messages.</p>
+                </div>
+            @else
+                {{-- Account selector --}}
+                <div class="form-group" style="margin-bottom:14px;">
+                    <label class="form-label" style="font-size:12px;font-weight:600;">Sender Account</label>
+                    <select class="form-control" id="leadWaAccount">
+                        @foreach($waAccounts as $acc)
+                            <option value="{{ $acc->id }}">{{ $acc->display_name }} ({{ $acc->phone_number }})</option>
+                        @endforeach
+                    </select>
+                </div>
+
+                {{-- Phone Selection (if lead has secondary phone) --}}
+                @if($lead->phone && $lead->phone_2)
+                    <div class="form-group" style="margin-bottom:10px;">
+                        <label class="form-label" style="font-size:12px;font-weight:600;">Select Number</label>
+                        <div style="display:flex;gap:8px;">
+                            <button type="button" class="btn btn-xs btn-outline active" id="btnWaPickPhone1"
+                                    onclick="pickLeadPhone('{{ $lead->phone }}', 'btnWaPickPhone1')">
+                                <i class="bi bi-telephone"></i> Primary: {{ $lead->phone }}
+                            </button>
+                            <button type="button" class="btn btn-xs btn-outline" id="btnWaPickPhone2"
+                                    onclick="pickLeadPhone('{{ $lead->phone_2 }}', 'btnWaPickPhone2')">
+                                <i class="bi bi-telephone-plus"></i> Sec: {{ $lead->phone_2 }}
+                            </button>
+                        </div>
+                    </div>
+                @endif
+
+                {{-- Destination phone input --}}
+                <div class="form-group" style="margin-bottom:14px;">
+                    <label class="form-label" style="font-size:12px;font-weight:600;">Destination Number</label>
+                    <div id="leadWaPhoneWrap" style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--bg-card);">
+                        <div style="position:relative;flex-shrink:0;border-right:1px solid var(--border);">
+                            <select id="leadWaCountry" style="width:95px;border:none;background:var(--bg-secondary);color:var(--text-strong);font-size:13px;padding:10px 24px 10px 8px;cursor:pointer;outline:none;appearance:none;-webkit-appearance:none;">
+                                <option value="521">🇲🇽 +52</option>
+                                <option value="1">🇺🇸 +1</option>
+                                <option value="34">🇪🇸 +34</option>
+                                <option value="57">🇨🇴 +57</option>
+                            </select>
+                            <i class="bi bi-chevron-down" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--text-muted);pointer-events:none;"></i>
+                        </div>
+                        <input id="leadWaPhone" type="tel" placeholder="10 digits..." maxlength="10"
+                               style="flex:1;border:none;padding:10px 12px;font-size:13px;background:var(--bg-card);color:var(--text-strong);outline:none;" />
+                    </div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">10-digit phone without country code</div>
+                </div>
+
+                {{-- Template selector --}}
+                <div class="form-group" style="margin-bottom:14px;">
+                    <label class="form-label" style="font-size:12px;font-weight:600;">Approved WhatsApp Template</label>
+                    <select class="form-control" id="leadWaTemplate" onchange="updateLeadWaPreview()">
+                        @forelse($waTemplates as $tmpl)
+                            <option value="{{ $tmpl->name }}" data-preview="{{ $tmpl->body_preview ?? $tmpl->display_name }}">{{ $tmpl->display_name }} ({{ strtoupper($tmpl->language) }})</option>
+                        @empty
+                            <option value="" disabled>No templates configured</option>
+                        @endforelse
+                    </select>
+                </div>
+
+                {{-- Template Preview --}}
+                <div class="form-group" style="margin-bottom:6px;">
+                    <label class="form-label" style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;">Message Preview</label>
+                    <div id="leadWaPreviewBox" style="background:#eef6ee;border:1px solid #d1e7dd;border-radius:10px;padding:12px 14px;font-size:13px;color:#134e4a;line-height:1.5;white-space:pre-wrap;min-height:50px;position:relative;">
+                        <span id="leadWaPreviewText">Select a template</span>
+                        <div style="text-align:right;font-size:10px;color:#0f766e;margin-top:6px;">Now ✓✓</div>
+                    </div>
+                </div>
+            @endif
+        </div>
+        @if($waAccounts->isNotEmpty())
+            <div class="modal-footer" style="background:var(--bg-secondary);display:flex;justify-content:space-between;align-items:center;">
+                <button class="btn btn-secondary" onclick="closeModal('leadWaModal')">Cancel</button>
+                <button class="btn btn-success" id="leadWaSubmitBtn" onclick="submitLeadWaTemplate()" style="background:#25D366;border-color:#25D366;color:#fff;">
+                    <i class="bi bi-whatsapp"></i> Send WhatsApp
+                </button>
+            </div>
+        @endif
+    </div>
+</div>
+
 @endsection
 
 @section('scripts')
@@ -706,6 +824,130 @@ $(document).on('click', '.load-recording-btn', function() {
     });
 });
 
+// --- WhatsApp Modal Logic ---
+function parseLeadPhoneNumber(raw) {
+    if (!raw) return { country: '521', phone: '' };
+    let digits = String(raw).replace(/\D/g, '');
+    if (digits.startsWith('521') && digits.length === 13) {
+        return { country: '521', phone: digits.slice(3) };
+    }
+    if (digits.startsWith('52') && digits.length === 12) {
+        return { country: '521', phone: digits.slice(2) };
+    }
+    if (digits.startsWith('1') && digits.length === 11) {
+        return { country: '1', phone: digits.slice(1) };
+    }
+    if (digits.length === 10) {
+        return { country: '521', phone: digits };
+    }
+    if (digits.length > 10) {
+        return { country: '521', phone: digits.slice(-10) };
+    }
+    return { country: '521', phone: digits };
+}
+
+function openLeadWaModal(preferPhone = null) {
+    const raw = preferPhone || @json($lead->phone) || @json($lead->phone_2) || '';
+    const parsed = parseLeadPhoneNumber(raw);
+    const countryEl = document.getElementById('leadWaCountry');
+    const phoneEl = document.getElementById('leadWaPhone');
+    if (countryEl) countryEl.value = parsed.country;
+    if (phoneEl) phoneEl.value = parsed.phone;
+
+    updateLeadWaPreview();
+    openModal('leadWaModal');
+}
+
+function pickLeadPhone(phoneVal, activeBtnId) {
+    const parsed = parseLeadPhoneNumber(phoneVal);
+    const countryEl = document.getElementById('leadWaCountry');
+    const phoneEl = document.getElementById('leadWaPhone');
+    if (countryEl) countryEl.value = parsed.country;
+    if (phoneEl) phoneEl.value = parsed.phone;
+
+    $('#btnWaPickPhone1, #btnWaPickPhone2').removeClass('active');
+    $('#' + activeBtnId).addClass('active');
+}
+
+function updateLeadWaPreview() {
+    const select = document.getElementById('leadWaTemplate');
+    const previewEl = document.getElementById('leadWaPreviewText');
+    if (!select || !previewEl) return;
+    const opt = select.options[select.selectedIndex];
+    if (opt && opt.getAttribute('data-preview')) {
+        previewEl.textContent = opt.getAttribute('data-preview');
+    } else {
+        previewEl.textContent = opt ? opt.text : 'No preview available.';
+    }
+}
+
+async function submitLeadWaTemplate() {
+    const accountEl = document.getElementById('leadWaAccount');
+    const countryEl = document.getElementById('leadWaCountry');
+    const phoneEl   = document.getElementById('leadWaPhone');
+    const tmplEl    = document.getElementById('leadWaTemplate');
+    const btn       = document.getElementById('leadWaSubmitBtn');
+
+    if (!accountEl || !accountEl.value) {
+        showToast('Please select a WhatsApp sender account.', 'error');
+        return;
+    }
+    const phone = phoneEl ? phoneEl.value.trim() : '';
+    if (!phone || phone.length !== 10) {
+        showToast('Please enter a valid 10-digit phone number.', 'error');
+        return;
+    }
+    if (!tmplEl || !tmplEl.value) {
+        showToast('Please select a template to send.', 'error');
+        return;
+    }
+
+    const fullPhone = countryEl.value + phone;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending...';
+
+    try {
+        const resp = await fetch('/console/whatsapp/send-template', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                account_id: parseInt(accountEl.value),
+                phone: fullPhone,
+                template_name: tmplEl.value,
+                lead_id: LEAD_ID
+            })
+        });
+
+        const data = await resp.json();
+        if (resp.ok) {
+            showToast('WhatsApp message sent successfully!', 'success');
+            closeModal('leadWaModal');
+            setTimeout(() => location.reload(), 1200);
+        } else {
+            showToast(data.error || data.message || 'Error sending WhatsApp template.', 'error');
+        }
+    } catch (e) {
+        showToast('Failed to send WhatsApp message: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-whatsapp"></i> Send WhatsApp';
+    }
+}
+
+// Auto open if query string has ?open_wa=1
+$(document).ready(function() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('open_wa') === '1') {
+        openLeadWaModal();
+        const url = new URL(window.location);
+        url.searchParams.delete('open_wa');
+        window.history.replaceState({}, document.title, url.toString());
+    }
+});
 
 </script>
 @endsection

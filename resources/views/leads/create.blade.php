@@ -206,6 +206,13 @@
             {{-- SAVE ACTIONS --}}
             <div class="card">
                 <div class="card-body" style="display:flex;flex-direction:column;gap:8px">
+                    <div style="padding:8px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:4px;">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;font-weight:500;color:var(--text-strong);margin:0;">
+                            <input type="checkbox" name="send_whatsapp_now" value="1" {{ old('send_whatsapp_now') ? 'checked' : '' }} style="accent-color:#25D366;width:16px;height:16px;cursor:pointer;">
+                            <i class="bi bi-whatsapp" style="color:#25D366;font-size:15px;"></i>
+                            <span>Send WhatsApp upon creation</span>
+                        </label>
+                    </div>
                     <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center">
                         <i class="bi bi-check-lg"></i> Create Lead
                     </button>

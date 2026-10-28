@@ -206,6 +206,11 @@ class LeadController extends Controller
 
         $lead = Lead::create($validated);
 
+        if ($request->boolean('send_whatsapp_now')) {
+            return redirect()->route('leads.show', ['lead' => $lead, 'open_wa' => 1])
+                ->with('success', 'Lead created successfully.');
+        }
+
         return redirect()->route('leads.show', $lead)
             ->with('success', 'Lead created successfully.');
     }
@@ -270,7 +275,19 @@ class LeadController extends Controller
             ->orderBy('name')
             ->get(['id', 'name']);
 
-        return view('leads.show', compact('lead', 'statuses', 'agents', 'history', 'dispositions'));
+        $leadTenantId = $lead->tenant_id ?? Auth::user()->tenant_id;
+        $waAccounts = \App\Models\WhatsappAccount::withoutGlobalScopes()
+            ->where('tenant_id', $leadTenantId)
+            ->where('is_active', true)
+            ->get();
+
+        $waTemplates = \App\Models\WhatsappTemplate::withoutGlobalScopes()
+            ->where('tenant_id', $leadTenantId)
+            ->where('is_active', true)
+            ->orderBy('display_name')
+            ->get(['id', 'name', 'display_name', 'language', 'body_preview']);
+
+        return view('leads.show', compact('lead', 'statuses', 'agents', 'history', 'dispositions', 'waAccounts', 'waTemplates'));
     }
 
     public function conversationThread(int $reportId): \Illuminate\Http\JsonResponse
