@@ -42,10 +42,10 @@ class Conversation extends Model
     public function script(): BelongsTo           { return $this->belongsTo(Script::class); }
     public function dialerCampaign(): BelongsTo   { return $this->belongsTo(DialerCampaign::class); }
     public function leadList(): BelongsTo         { return $this->belongsTo(LeadList::class); }
-    public function emailAccount(): BelongsTo    { return $this->belongsTo(EmailAccount::class); }
-    public function whatsappAccount(): BelongsTo { return $this->belongsTo(WhatsappAccount::class); }
-    public function socialAccount(): BelongsTo   { return $this->belongsTo(SocialAccount::class); }
-    public function smsChannel(): BelongsTo      { return $this->belongsTo(SmsChannel::class); }
+    public function emailAccount(): BelongsTo    { return $this->belongsTo(EmailAccount::class)->withoutGlobalScopes(); }
+    public function whatsappAccount(): BelongsTo { return $this->belongsTo(WhatsappAccount::class)->withoutGlobalScopes(); }
+    public function socialAccount(): BelongsTo   { return $this->belongsTo(SocialAccount::class)->withoutGlobalScopes(); }
+    public function smsChannel(): BelongsTo      { return $this->belongsTo(SmsChannel::class)->withoutGlobalScopes(); }
     public function omniQueue(): BelongsTo       { return $this->belongsTo(OmniQueue::class); }
     public function assignedAgent(): BelongsTo   { return $this->belongsTo(User::class, 'assigned_to'); }
     public function lead(): BelongsTo            { return $this->belongsTo(Lead::class); }

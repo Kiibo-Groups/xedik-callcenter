@@ -333,6 +333,12 @@ class ConsoleController extends Controller
         $waTemplates = \App\Models\WhatsappTemplate::where('is_active', true)
                                                    ->orderBy('display_name')
                                                    ->get(['id', 'name', 'display_name', 'language', 'body_preview']);
+        if ($waTemplates->isEmpty()) {
+            $waTemplates = \App\Models\WhatsappTemplate::withoutGlobalScopes()
+                                                       ->where('is_active', true)
+                                                       ->orderBy('display_name')
+                                                       ->get(['id', 'name', 'display_name', 'language', 'body_preview']);
+        }
 
         // SMS Quick Action: solo los números ELEGIBLES para este agente (tenant +
         // activo + p2p + queue activa + membresía activa del agente + campaign
@@ -2257,9 +2263,17 @@ class ConsoleController extends Controller
             'lead_id'       => 'nullable|integer',
         ]);
 
-        $account = \App\Models\WhatsappAccount::findOrFail($request->account_id);
+        $account = \App\Models\WhatsappAccount::withoutGlobalScopes()
+            ->where('is_active', true)
+            ->findOrFail($request->account_id);
 
         $apiBase = env('WHATSAPP_API_BASE_URL', 'https://graph.facebook.com/v25.0');
+
+        $template = \App\Models\WhatsappTemplate::withoutGlobalScopes()
+            ->where('name', $request->template_name)
+            ->first();
+
+        $langCode = $template?->language ?? 'es';
 
         $response = \Illuminate\Support\Facades\Http::withToken($account->access_token)
             ->post("{$apiBase}/{$account->phone_number_id}/messages", [
@@ -2268,7 +2282,7 @@ class ConsoleController extends Controller
                 'type'              => 'template',
                 'template'          => [
                     'name'     => $request->template_name,
-                    'language' => ['code' => \App\Models\WhatsappTemplate::where('name', $request->template_name)->value('language') ?? 'es'],
+                    'language' => ['code' => $langCode],
                 ],
             ]);
 
@@ -2278,11 +2292,11 @@ class ConsoleController extends Controller
 
         $wamid = $response->json('messages.0.id');
 
-        $lead         = $request->lead_id ? \App\Models\Lead::find($request->lead_id) : null;
+        $lead         = $request->lead_id ? \App\Models\Lead::withoutGlobalScopes()->find($request->lead_id) : null;
         $displayPhone = \App\Helpers\PhoneHelper::formatDisplay($request->phone);
         $leadName     = $lead ? trim($lead->first_name . ' ' . $lead->last_name) : null;
 
-        $targetTenantId = Auth::user()->tenant_id ?? $account->tenant_id;
+        $targetTenantId = $lead?->tenant_id ?? (Auth::user()->tenant_id ?? $account->tenant_id);
 
         $conversation = \App\Models\Conversation::create([
             'tenant_id'           => $targetTenantId,
@@ -2300,7 +2314,7 @@ class ConsoleController extends Controller
             'wait_since'          => now(),
         ]);
 
-        $bodyText = \App\Models\WhatsappTemplate::where('name', $request->template_name)->value('body_preview') ?? $request->template_name;
+        $bodyText = $template?->body_preview ?? $request->template_name;
 
         \App\Models\Message::create([
             'tenant_id'       => $targetTenantId,
