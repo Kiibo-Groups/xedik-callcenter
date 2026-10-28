@@ -163,8 +163,10 @@ class ScriptController extends Controller
                 'max:2048',
                 'regex:/^https?:\/\//i',
             ],
-            'url_target'  => 'nullable|in:tab,panel,modal',
-            'url_params'  => 'nullable|array',
+            'url_target'        => 'nullable|in:tab,panel,modal',
+            'url_params'        => 'nullable|array',
+            'voicebot_agent_id' => 'nullable|string|max:120',
+            'voicebot_voice_id' => 'nullable|string|max:120',
         ], [
             'url.regex' => 'The URL must start with http:// or https://',
         ]);
@@ -302,16 +304,8 @@ class ScriptController extends Controller
 
     private function syncWithElevenLabs(Script $script): void
     {
-        // Check if script belongs to FOU (tenant_id = 5) or Xedik
-        $agentId = null;
-        $defaultVoiceId = 'ojGau167OE7nUATM1xDa'; // Carlos
-        if ($script->tenant_id == 5 || (int) $script->campaign_id === 5) {
-            $agentId        = 'agent_2101m5xst5cgf1gv86jxhf2an2nd'; // FOU Eva
-            $defaultVoiceId = 'p7sm2zw5Us66lZr2brDW';                // Eva
-        } elseif ($script->tenant_id == 2 && str_contains(strtolower($script->name), 'ia')) {
-            $agentId        = 'agent_0001m5h3zv32egsb2mfmgnd6a395'; // Xedik Carlos
-            $defaultVoiceId = 'ojGau167OE7nUATM1xDa';                // Carlos
-        }
+        // Resolve agent dynamically from script model
+        $agentId = $script->voicebot_agent_id;
 
         if (!$agentId || empty($script->body)) {
             return;
@@ -341,12 +335,15 @@ class ScriptController extends Controller
                         ],
                     ],
                     'tts' => [
-                        'voice_id'                   => $defaultVoiceId,
                         'agent_output_audio_format' => 'pcm_8000',
                         'optimize_streaming_latency' => 2,
                     ],
                 ],
             ];
+
+            if (!empty($script->voicebot_voice_id)) {
+                $patchData['conversation_config']['tts']['voice_id'] = $script->voicebot_voice_id;
+            }
 
             if ($firstMessage) {
                 $patchData['conversation_config']['agent']['first_message'] = $firstMessage;

@@ -116,10 +116,26 @@ class RunDialerWorker extends Command
 
                 $this->info("Dialing lead #{$item->dialer_lead_id} (Phone: {$dialExten}) for Campaign #{$campaignId}...");
 
-                // Resolve voicebot agent according to campaign tenant
-                $agentId = 'agent_0001m5h3zv32egsb2mfmgnd6a395'; // default Xedik Carlos
-                if ($campaign && $campaign->tenant_id == 5) {
-                    $agentId = 'agent_2101m5xst5cgf1gv86jxhf2an2nd'; // FOU Predator Eva
+                // Resolve voicebot agent dynamically from the dialer campaign or its linked script
+                $agentId = $campaign->voicebot_agent_id ?? null;
+                if (empty($agentId) && !empty($campaign->script_id)) {
+                    $agentId = DB::table('scripts')->where('id', $campaign->script_id)->value('voicebot_agent_id');
+                }
+                if (empty($agentId) && !empty($campaign->campaign_id)) {
+                    $agentId = DB::table('scripts')->where('campaign_id', $campaign->campaign_id)->whereNotNull('voicebot_agent_id')->value('voicebot_agent_id');
+                }
+                if (empty($agentId)) {
+                    $agentId = config('services.elevenlabs.default_agent_id');
+                }
+
+                if (empty($agentId)) {
+                    $this->error("No voicebot_agent_id configured for Campaign #{$campaignId} or its script. Skipping call.");
+                    Log::warning("Dialer call skipped: missing voicebot_agent_id", [
+                        'campaign_id' => $campaignId,
+                        'lead_id'     => $item->dialer_lead_id,
+                    ]);
+                    DB::table('queue_dial')->where('id', $item->id)->update(['status' => 'failed']);
+                    continue;
                 }
 
                 // Execute Asterisk originate

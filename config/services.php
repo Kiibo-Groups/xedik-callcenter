@@ -40,4 +40,9 @@ return [
         'webhook_secret' => env('ZERNIO_WEBHOOK_SECRET'),
     ],
 
+    'elevenlabs' => [
+        'api_key'          => env('ELEVENLABS_API_KEY'),
+        'default_agent_id' => env('ELEVENLABS_DEFAULT_AGENT_ID'),
+    ],
+
 ];

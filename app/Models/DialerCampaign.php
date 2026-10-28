@@ -17,7 +17,7 @@ class DialerCampaign extends Model
     protected $fillable = [
         'tenant_id', 'name', 'campaign_id', 'omni_queue_id', 'lead_list_id', 'script_id',
         'lead_order_direction', 'filter_config', 'compliance_config',
-        'dialer_type', 'caller_id', 'context',
+        'dialer_type', 'caller_id', 'context', 'voicebot_agent_id',
         'max_retries', 'dial_block_size', 'offer_timeout_seconds',
         'status', 'started_at', 'completed_at',
         'scheduled_at', 'scheduled_end_at', 'daily_start_time', 'daily_end_time',

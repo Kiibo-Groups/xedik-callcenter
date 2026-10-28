@@ -21,10 +21,30 @@
     @csrf
     @if($script->exists) @method('PUT') @endif
 
-    <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;">
-        <span style="font-size:20px;">🤖</span>
-        <div style="font-size:13px;color:var(--text-primary);line-height:1.4;">
-            <strong>Sincronización con Voicebot IA:</strong> Al guardar cambios en este guion, el contenido y la frase indicada en <code>SALUDO INICIAL: "..."</code> se sincronizan automáticamente en tiempo real con el Asesor de Voz en ElevenLabs.
+    <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:12px 16px;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+            <span style="font-size:20px;">🤖</span>
+            <div style="font-size:13px;color:var(--text-primary);line-height:1.4;">
+                <strong>Sincronización con Voicebot IA:</strong> Al guardar cambios en este guion, el contenido y la frase indicada en <code>SALUDO INICIAL: "..."</code> se sincronizan automáticamente en tiempo real con el Asesor de Voz en ElevenLabs.
+            </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px;padding-top:12px;border-top:1px dashed rgba(99,102,241,0.3);">
+            <div>
+                <label class="form-label" style="font-size:12px;">ElevenLabs Agent ID (Opcional)</label>
+                <input type="text" name="voicebot_agent_id" class="form-control"
+                       value="{{ old('voicebot_agent_id', $script->voicebot_agent_id) }}"
+                       placeholder="e.g. agent_2101m5xst5cgf1gv86jxhf2an2nd">
+                <div class="form-hint" style="font-size:11px;">ID del Asesor en ElevenLabs ConvAI vinculado a este guion.</div>
+                @error('voicebot_agent_id')<div style="color:#dc2626;font-size:11px;">{{ $message }}</div>@enderror
+            </div>
+            <div>
+                <label class="form-label" style="font-size:12px;">ElevenLabs Voice ID (Opcional)</label>
+                <input type="text" name="voicebot_voice_id" class="form-control"
+                       value="{{ old('voicebot_voice_id', $script->voicebot_voice_id) }}"
+                       placeholder="e.g. p7sm2zw5Us66lZr2brDW">
+                <div class="form-hint" style="font-size:11px;">ID de la voz asignada (ej. Eva, Carlos, Mauricio).</div>
+                @error('voicebot_voice_id')<div style="color:#dc2626;font-size:11px;">{{ $message }}</div>@enderror
+            </div>
         </div>
     </div>
 

@@ -24,6 +24,8 @@ class Script extends Model
         'direction',
         'is_default',
         'sort_order',
+        'voicebot_agent_id',
+        'voicebot_voice_id',
     ];
 
     protected $casts = [
