@@ -334,7 +334,34 @@ class VoicebotController extends Controller
             }
         }
 
-        // 2. Si no se encontró en la lista dinámica, buscar en la tabla general de leads
+        // 2. Si no se especificó campaña o no se encontró, buscar en las listas de prospectos activas
+        if (empty($firstName) && !empty($last10)) {
+            $allLists = LeadList::withoutGlobalScopes()->where('status', 'ready')->latest('id')->get();
+            foreach ($allLists as $al) {
+                if (!empty($al->table_name) && Schema::hasTable($al->table_name)) {
+                    $row = DB::table($al->table_name)->where('phone', 'like', "%{$last10}%")->first();
+                    if ($row) {
+                        $foundLeadId = $row->id;
+                        if (!empty($row->custom_fields)) {
+                            $custom = is_array($row->custom_fields) ? $row->custom_fields : json_decode((string)$row->custom_fields, true);
+                            if (is_array($custom)) {
+                                $firstName = $custom['first_name'] ?? $custom['nombre'] ?? $custom['name'] ?? null;
+                                $lastName = $custom['last_name'] ?? $custom['apellido'] ?? null;
+                                $companyName = $custom['company'] ?? $custom['empresa'] ?? null;
+                            }
+                        }
+                        if (empty($firstName) && isset($row->name)) {
+                            $firstName = $row->name;
+                        }
+                        if (!empty($firstName)) {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Buscar en la tabla general de leads
         if (empty($firstName)) {
             $lead = null;
             if (!empty($leadId)) {
