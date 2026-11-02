@@ -369,17 +369,18 @@ class AppointmentNotificationService
             }
 
             Message::create([
-                'tenant_id'       => $targetTenantId,
-                'conversation_id' => $conversation->id,
-                'direction'       => 'outbound',
-                'from_email'      => $account->phone_number,
-                'from_name'       => 'XEDIK Voicebot Assistant',
-                'to_email'        => $fullPhone,
-                'body_text'       => $text,
-                'body_html'       => null,
-                'message_id'      => $wamid,
-                'sent_by'         => $agentId ?: $lead->assigned_to,
-                'sent_at'         => now(),
+                'tenant_id'           => $targetTenantId,
+                'conversation_id'     => $conversation->id,
+                'direction'           => 'outbound',
+                'from_email'          => $account->phone_number,
+                'from_name'           => 'XEDIK Voicebot Assistant',
+                'to_email'            => $fullPhone,
+                'body_text'           => $text,
+                'body_html'           => null,
+                'message_id'          => $wamid,
+                'provider_message_id' => $wamid,
+                'sent_by'             => $agentId ?: $lead->assigned_to,
+                'sent_at'             => now(),
             ]);
         } catch (\Throwable $e) {
             Log::error("Error saving WhatsApp appointment message to CRM history: " . $e->getMessage());
