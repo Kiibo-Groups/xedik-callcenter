@@ -8,12 +8,15 @@ use App\Http\Controllers\Controller;
 use App\Models\Call;
 use App\Models\DialerCampaign;
 use App\Models\Lead;
+use App\Models\LeadList;
 use App\Services\Appointments\AppointmentNotificationService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class VoicebotController extends Controller
 {
@@ -114,6 +117,22 @@ class VoicebotController extends Controller
 
         // 4. Actualizar o crear Lead en el CRM
         if (!$lead) {
+            if (empty($firstName) || $firstName === 'Prospecto') {
+                if ($dialerCampaign && $dialerCampaign->lead_list_id) {
+                    $ll = LeadList::withoutGlobalScopes()->find($dialerCampaign->lead_list_id);
+                    if ($ll && !empty($ll->table_name) && Schema::hasTable($ll->table_name)) {
+                        $row = DB::table($ll->table_name)->where('id', $leadId)->orWhere('phone', 'like', "%{$last10}")->first();
+                        if ($row && !empty($row->custom_fields)) {
+                            $cf = json_decode((string)$row->custom_fields, true);
+                            if (is_array($cf)) {
+                                $firstName = $cf['first_name'] ?? $cf['nombre'] ?? $firstName;
+                                $lastName = $cf['last_name'] ?? $cf['apellido'] ?? $lastName;
+                            }
+                        }
+                    }
+                }
+            }
+
             $lead = new Lead();
             $lead->tenant_id = $tenantId;
             $lead->first_name = $firstName ?: 'Prospecto';
@@ -265,5 +284,99 @@ class VoicebotController extends Controller
 
         $d->setHour($hour)->setMinute(0)->setSecond(0);
         return $d;
+    }
+
+    /**
+     * Obtener el contexto y nombre del Lead para personalizar el saludo y prompt de ElevenLabs en tiempo real.
+     */
+    public function getLeadContext(Request $request): JsonResponse
+    {
+        $leadId = $request->input('lead_id') ? (int)$request->input('lead_id') : null;
+        $campaignId = $request->input('campaign_id') ? (int)$request->input('campaign_id') : null;
+        $rawPhone = (string)($request->input('phone') ?: $request->input('caller') ?: '');
+        $phoneDigits = preg_replace('/[^\d]/', '', $rawPhone);
+        $last10 = strlen($phoneDigits) >= 10 ? substr($phoneDigits, -10) : $phoneDigits;
+
+        $firstName = null;
+        $lastName = null;
+        $companyName = null;
+        $foundLeadId = null;
+
+        // 1. Buscar en la lista dinámica de la campaña de marcación
+        if (!empty($campaignId)) {
+            $campaign = DialerCampaign::withoutGlobalScopes()->find($campaignId);
+            if ($campaign && $campaign->lead_list_id) {
+                $leadList = LeadList::withoutGlobalScopes()->find($campaign->lead_list_id);
+                if ($leadList && !empty($leadList->table_name) && Schema::hasTable($leadList->table_name)) {
+                    $row = null;
+                    if (!empty($leadId)) {
+                        $row = DB::table($leadList->table_name)->where('id', $leadId)->first();
+                    }
+                    if (!$row && !empty($last10)) {
+                        $row = DB::table($leadList->table_name)->where('phone', 'like', "%{$last10}")->first();
+                    }
+
+                    if ($row) {
+                        $foundLeadId = $row->id;
+                        if (!empty($row->custom_fields)) {
+                            $custom = is_array($row->custom_fields) ? $row->custom_fields : json_decode((string)$row->custom_fields, true);
+                            if (is_array($custom)) {
+                                $firstName = $custom['first_name'] ?? $custom['nombre'] ?? $custom['name'] ?? null;
+                                $lastName = $custom['last_name'] ?? $custom['apellido'] ?? null;
+                                $companyName = $custom['company'] ?? $custom['empresa'] ?? null;
+                            }
+                        }
+                        if (empty($firstName) && isset($row->name)) {
+                            $firstName = $row->name;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Si no se encontró en la lista dinámica, buscar en la tabla general de leads
+        if (empty($firstName)) {
+            $lead = null;
+            if (!empty($leadId)) {
+                $lead = Lead::withoutGlobalScopes()->find($leadId);
+            }
+            if (!$lead && !empty($last10)) {
+                $lead = Lead::withoutGlobalScopes()->where('phone', 'like', "%{$last10}")->first();
+            }
+
+            if ($lead) {
+                $foundLeadId = $lead->id;
+                $firstName = $lead->first_name;
+                $lastName = $lead->last_name;
+            }
+        }
+
+        if (!empty($firstName)) {
+            $cleanFirst = ucfirst(mb_strtolower(trim((string)$firstName)));
+            $cleanLast = $lastName ? ucfirst(mb_strtolower(trim((string)$lastName))) : '';
+            $fullName = trim("{$cleanFirst} {$cleanLast}");
+
+            return response()->json([
+                'found'        => true,
+                'first_name'   => $cleanFirst,
+                'last_name'    => $cleanLast,
+                'full_name'    => $fullName,
+                'company'      => $companyName,
+                'phone'        => $last10,
+                'lead_id'      => $foundLeadId,
+                'campaign_id'  => $campaignId,
+            ]);
+        }
+
+        return response()->json([
+            'found'        => false,
+            'first_name'   => '',
+            'last_name'    => '',
+            'full_name'    => '',
+            'company'      => '',
+            'phone'        => $last10,
+            'lead_id'      => $leadId,
+            'campaign_id'  => $campaignId,
+        ]);
     }
 }
