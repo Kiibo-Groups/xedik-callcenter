@@ -313,7 +313,7 @@ class VoicebotController extends Controller
                         $row = DB::table($leadList->table_name)->where('id', $leadId)->first();
                     }
                     if (!$row && !empty($last10)) {
-                        $row = DB::table($leadList->table_name)->where('phone', 'like', "%{$last10}")->first();
+                        $row = DB::table($leadList->table_name)->where('phone', 'like', "%{$last10}%")->first();
                     }
 
                     if ($row) {
@@ -341,7 +341,12 @@ class VoicebotController extends Controller
                 $lead = Lead::withoutGlobalScopes()->find($leadId);
             }
             if (!$lead && !empty($last10)) {
-                $lead = Lead::withoutGlobalScopes()->where('phone', 'like', "%{$last10}")->first();
+                $lead = Lead::withoutGlobalScopes()
+                    ->where(function ($q) use ($last10) {
+                        $q->where('phone', 'like', "%{$last10}%")
+                          ->orWhere('phone_2', 'like', "%{$last10}%");
+                    })
+                    ->first();
             }
 
             if ($lead) {
