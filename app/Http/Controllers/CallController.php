@@ -88,6 +88,14 @@ class CallController extends Controller
             $lead->update(['status' => 'contacted']);
         }
 
+        if ($isScheduled) {
+            try {
+                app(\App\Services\Appointments\AppointmentNotificationService::class)->sendConfirmation($call);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Could not auto-send WhatsApp confirmation: " . $e->getMessage());
+            }
+        }
+
         $call->load(['lead', 'agent']);
 
         return response()->json([

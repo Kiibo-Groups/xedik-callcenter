@@ -35,9 +35,12 @@ class ScriptController extends Controller
 
         $campaigns = $this->accessibleCampaignQuery()->orderBy('name')->get();
 
+        $waTemplates = \App\Models\WhatsappTemplate::withoutGlobalScopes()->where('is_active', true)->orderBy('display_name')->get();
+
         return view('scripts.form', [
-            'script'    => new Script(),
-            'campaigns' => $campaigns,
+            'script'      => new Script(),
+            'campaigns'   => $campaigns,
+            'waTemplates' => $waTemplates,
         ]);
     }
 
@@ -74,9 +77,12 @@ class ScriptController extends Controller
 
         $campaigns = $this->accessibleCampaignQuery()->orderBy('name')->get();
 
+        $waTemplates = \App\Models\WhatsappTemplate::withoutGlobalScopes()->where('is_active', true)->orderBy('display_name')->get();
+
         return view('scripts.form', [
-            'script'    => $script,
-            'campaigns' => $campaigns,
+            'script'      => $script,
+            'campaigns'   => $campaigns,
+            'waTemplates' => $waTemplates,
         ]);
     }
 
@@ -165,8 +171,12 @@ class ScriptController extends Controller
             ],
             'url_target'        => 'nullable|in:tab,panel,modal',
             'url_params'        => 'nullable|array',
-            'voicebot_agent_id' => 'nullable|string|max:120',
-            'voicebot_voice_id' => 'nullable|string|max:120',
+            'voicebot_agent_id'           => 'nullable|string|max:120',
+            'voicebot_voice_id'           => 'nullable|string|max:120',
+            'appointment_wa_confirmation' => 'nullable|boolean',
+            'appointment_wa_reminder'     => 'nullable|boolean',
+            'confirmation_wa_template_id' => 'nullable|integer',
+            'reminder_wa_template_id'     => 'nullable|integer',
         ], [
             'url.regex' => 'The URL must start with http:// or https://',
         ]);

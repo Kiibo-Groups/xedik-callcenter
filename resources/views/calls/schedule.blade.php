@@ -122,14 +122,34 @@
                             </div>
                         </td>
                         <td>
-                            <span class="badge badge-warning">
-                                <i class="bi bi-clock" style="margin-right:3px;"></i> Pending
-                            </span>
+                            <div>
+                                <span class="badge badge-warning">
+                                    <i class="bi bi-clock" style="margin-right:3px;"></i> Pending
+                                </span>
+                            </div>
+                            @if($call->wa_confirmation_sent_at)
+                                <div style="margin-top:4px;">
+                                    <span class="badge" style="background:#dcfce7;color:#166534;font-size:10px;">
+                                        <i class="bi bi-whatsapp"></i> Confirmado
+                                    </span>
+                                </div>
+                            @endif
+                            @if($call->wa_reminder_sent_at)
+                                <div style="margin-top:2px;">
+                                    <span class="badge" style="background:#e0f2fe;color:#0369a1;font-size:10px;">
+                                        <i class="bi bi-bell-fill"></i> Recordado
+                                    </span>
+                                </div>
+                            @endif
                         </td>
                         <td>
                             <div style="display:flex;gap:6px;">
+                                <a href="{{ route('leads.show', $call->lead) }}?open_wa=1"
+                                   class="btn btn-outline btn-xs" title="Enviar WhatsApp">
+                                    <i class="bi bi-whatsapp" style="color:#25d366;"></i>
+                                </a>
                                 <a href="{{ route('leads.show', $call->lead) }}"
-                                   class="btn btn-outline btn-xs">
+                                   class="btn btn-outline btn-xs" title="Ver Expediente Lead">
                                     <i class="bi bi-eye"></i>
                                 </a>
                                 <button class="btn btn-success btn-xs complete-call-btn"

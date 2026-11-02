@@ -18,19 +18,23 @@ class DialerCampaign extends Model
         'tenant_id', 'name', 'campaign_id', 'omni_queue_id', 'lead_list_id', 'script_id',
         'lead_order_direction', 'filter_config', 'compliance_config',
         'dialer_type', 'caller_id', 'context', 'voicebot_agent_id',
+        'appointment_wa_confirmation', 'appointment_wa_reminder',
+        'confirmation_wa_template_id', 'reminder_wa_template_id',
         'max_retries', 'dial_block_size', 'offer_timeout_seconds',
         'status', 'started_at', 'completed_at',
         'scheduled_at', 'scheduled_end_at', 'daily_start_time', 'daily_end_time',
     ];
 
     protected $casts = [
-        'offer_timeout_seconds' => 'integer',
-        'filter_config'         => 'array',
-        'compliance_config'     => 'array',
-        'started_at'            => 'datetime',
-        'completed_at'          => 'datetime',
-        'scheduled_at'          => 'datetime',
-        'scheduled_end_at'      => 'datetime',
+        'appointment_wa_confirmation' => 'boolean',
+        'appointment_wa_reminder'     => 'boolean',
+        'offer_timeout_seconds'       => 'integer',
+        'filter_config'               => 'array',
+        'compliance_config'           => 'array',
+        'started_at'                  => 'datetime',
+        'completed_at'                => 'datetime',
+        'scheduled_at'                => 'datetime',
+        'scheduled_end_at'            => 'datetime',
     ];
 
     public function getLeadOrderDirectionAttribute($value): string
@@ -77,6 +81,16 @@ class DialerCampaign extends Model
         return $this->belongsToMany(VoiceCallerId::class, 'dialer_campaign_caller_ids')
             ->withPivot(['is_active', 'last_used_at', 'sort_order'])
             ->withTimestamps();
+    }
+
+    public function confirmationWaTemplate(): BelongsTo
+    {
+        return $this->belongsTo(WhatsappTemplate::class, 'confirmation_wa_template_id')->withoutGlobalScopes();
+    }
+
+    public function reminderWaTemplate(): BelongsTo
+    {
+        return $this->belongsTo(WhatsappTemplate::class, 'reminder_wa_template_id')->withoutGlobalScopes();
     }
 
     public function isRunning(): bool   { return $this->status === 'running'; }

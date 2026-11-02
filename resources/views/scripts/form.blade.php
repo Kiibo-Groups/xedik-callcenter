@@ -46,6 +46,48 @@
                 @error('voicebot_voice_id')<div style="color:#dc2626;font-size:11px;">{{ $message }}</div>@enderror
             </div>
         </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px;padding-top:12px;border-top:1px dashed rgba(99,102,241,0.3);">
+            <div>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;cursor:pointer;">
+                    <input type="checkbox" name="appointment_wa_confirmation" value="1"
+                           {{ old('appointment_wa_confirmation', $script->appointment_wa_confirmation ?? true) ? 'checked' : '' }}>
+                    Confirmación por WhatsApp al agendar cita
+                </label>
+                <div class="form-hint" style="font-size:11px;">Envía mensaje oficial al prospecto con fecha y hora.</div>
+                <div style="margin-top:6px;">
+                    <select name="confirmation_wa_template_id" class="form-control" style="font-size:11px;padding:4px 8px;">
+                        <option value="">-- Plantilla Automática (Default) --</option>
+                        @if(isset($waTemplates))
+                            @foreach($waTemplates as $tmpl)
+                                <option value="{{ $tmpl->id }}" {{ old('confirmation_wa_template_id', $script->confirmation_wa_template_id) == $tmpl->id ? 'selected' : '' }}>
+                                    {{ $tmpl->display_name }} ({{ $tmpl->name }})
+                                </option>
+                            @endforeach
+                        @endif
+                    </select>
+                </div>
+            </div>
+            <div>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;cursor:pointer;">
+                    <input type="checkbox" name="appointment_wa_reminder" value="1"
+                           {{ old('appointment_wa_reminder', $script->appointment_wa_reminder ?? true) ? 'checked' : '' }}>
+                    Recordatorio WhatsApp el día de la cita
+                </label>
+                <div class="form-hint" style="font-size:11px;">Envía recordatorio automático la mañana de la cita.</div>
+                <div style="margin-top:6px;">
+                    <select name="reminder_wa_template_id" class="form-control" style="font-size:11px;padding:4px 8px;">
+                        <option value="">-- Plantilla Automática (Default) --</option>
+                        @if(isset($waTemplates))
+                            @foreach($waTemplates as $tmpl)
+                                <option value="{{ $tmpl->id }}" {{ old('reminder_wa_template_id', $script->reminder_wa_template_id) == $tmpl->id ? 'selected' : '' }}>
+                                    {{ $tmpl->display_name }} ({{ $tmpl->name }})
+                                </option>
+                            @endforeach
+                        @endif
+                    </select>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="card" style="padding:24px;margin-bottom:16px;">

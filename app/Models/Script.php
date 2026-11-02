@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Script extends Model
 {
@@ -26,20 +27,36 @@ class Script extends Model
         'sort_order',
         'voicebot_agent_id',
         'voicebot_voice_id',
+        'appointment_wa_confirmation',
+        'appointment_wa_reminder',
+        'confirmation_wa_template_id',
+        'reminder_wa_template_id',
     ];
 
     protected $casts = [
-        'url_params'  => 'array',
-        'is_active'   => 'boolean',
-        'is_default'  => 'boolean',
-        'sort_order'  => 'integer',
+        'url_params'                  => 'array',
+        'is_active'                   => 'boolean',
+        'is_default'                  => 'boolean',
+        'sort_order'                  => 'integer',
+        'appointment_wa_confirmation' => 'boolean',
+        'appointment_wa_reminder'     => 'boolean',
     ];
 
     public const DIRECTIONS = ['inbound', 'outbound', 'both'];
 
-    public function campaign()
+    public function campaign(): BelongsTo
     {
         return $this->belongsTo(Campaign::class);
+    }
+
+    public function confirmationWaTemplate(): BelongsTo
+    {
+        return $this->belongsTo(WhatsappTemplate::class, 'confirmation_wa_template_id')->withoutGlobalScopes();
+    }
+
+    public function reminderWaTemplate(): BelongsTo
+    {
+        return $this->belongsTo(WhatsappTemplate::class, 'reminder_wa_template_id')->withoutGlobalScopes();
     }
 
     public function queues()

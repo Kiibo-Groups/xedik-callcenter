@@ -50,6 +50,7 @@ class DialerCampaignController extends Controller
             ->whereIn('direction', ['outbound', 'both'])
             ->orderBy('name')
             ->get(['id', 'tenant_id', 'campaign_id', 'name', 'direction']);
+        $waTemplates  = \App\Models\WhatsappTemplate::withoutGlobalScopes()->where('is_active', true)->orderBy('display_name')->get();
 
         // Voice-eligible queues (Preview operational identity). Filtered client-side by
         // the selected Campaign; tenant scoping via the global scope (superadmin sees all).
@@ -96,7 +97,7 @@ class DialerCampaignController extends Controller
             $stats[$dc->id] = $s;
         }
 
-        return view('dialer_campaigns.index', compact('campaigns', 'crmCampaigns', 'leadLists', 'scripts', 'voiceQueues', 'stats', 'isSuperAdmin', 'tenants'));
+        return view('dialer_campaigns.index', compact('campaigns', 'crmCampaigns', 'leadLists', 'scripts', 'voiceQueues', 'stats', 'isSuperAdmin', 'tenants', 'waTemplates'));
     }
 
     public function edit(DialerCampaign $dialerCampaign)
@@ -128,6 +129,7 @@ class DialerCampaignController extends Controller
             ->whereIn('direction', ['outbound', 'both'])
             ->orderBy('name')
             ->get(['id', 'tenant_id', 'campaign_id', 'name', 'direction']);
+        $waTemplates  = \App\Models\WhatsappTemplate::withoutGlobalScopes()->where('is_active', true)->orderBy('display_name')->get();
 
         // Voice-eligible queues for this campaign's tenant (Preview operational identity).
         $voiceQueues = OmniQueue::withoutGlobalScopes()
@@ -181,6 +183,7 @@ class DialerCampaignController extends Controller
             'filterConfig',
             'availableFields',
             'complianceConfig',
+            'waTemplates',
         ));
     }
 
@@ -639,6 +642,10 @@ class DialerCampaignController extends Controller
             'caller_id' => [$isPreview ? 'nullable' : 'required', 'nullable', 'string', 'max:20'],
             'context' => [$isPreview ? 'nullable' : 'required', 'nullable', 'string', 'max:100'],
             'voicebot_agent_id' => ['nullable', 'string', 'max:120'],
+            'appointment_wa_confirmation' => ['nullable', 'boolean'],
+            'appointment_wa_reminder'     => ['nullable', 'boolean'],
+            'confirmation_wa_template_id' => ['nullable', 'integer'],
+            'reminder_wa_template_id'     => ['nullable', 'integer'],
             'max_retries' => ['required', 'integer', 'min:1', 'max:100'],
             'dial_block_size' => [$isPreview ? 'nullable' : 'required', 'nullable', 'integer', 'min:1', 'max:100'],
             'scheduled_at' => ['nullable', 'date'],
@@ -700,6 +707,10 @@ class DialerCampaignController extends Controller
                 'caller_id' => $existing?->caller_id ?: 'preview',
                 'context' => $existing?->context ?: 'preview',
                 'voicebot_agent_id' => $validated['voicebot_agent_id'] ?? $existing?->voicebot_agent_id,
+                'appointment_wa_confirmation' => (bool)($validated['appointment_wa_confirmation'] ?? $existing?->appointment_wa_confirmation ?? true),
+                'appointment_wa_reminder'     => (bool)($validated['appointment_wa_reminder'] ?? $existing?->appointment_wa_reminder ?? true),
+                'confirmation_wa_template_id' => !empty($validated['confirmation_wa_template_id']) ? (int)$validated['confirmation_wa_template_id'] : null,
+                'reminder_wa_template_id'     => !empty($validated['reminder_wa_template_id']) ? (int)$validated['reminder_wa_template_id'] : null,
                 'max_retries' => (int) $validated['max_retries'],
                 'dial_block_size' => $existing?->dial_block_size ?: 1,
                 'offer_timeout_seconds' => (int) $validated['offer_timeout_seconds'],
@@ -723,6 +734,10 @@ class DialerCampaignController extends Controller
             'caller_id' => (string) $validated['caller_id'],
             'context' => (string) $validated['context'],
             'voicebot_agent_id' => $validated['voicebot_agent_id'] ?? $existing?->voicebot_agent_id,
+            'appointment_wa_confirmation' => (bool)($validated['appointment_wa_confirmation'] ?? $existing?->appointment_wa_confirmation ?? true),
+            'appointment_wa_reminder'     => (bool)($validated['appointment_wa_reminder'] ?? $existing?->appointment_wa_reminder ?? true),
+            'confirmation_wa_template_id' => !empty($validated['confirmation_wa_template_id']) ? (int)$validated['confirmation_wa_template_id'] : null,
+            'reminder_wa_template_id'     => !empty($validated['reminder_wa_template_id']) ? (int)$validated['reminder_wa_template_id'] : null,
             'max_retries' => (int) $validated['max_retries'],
             'dial_block_size' => (int) $validated['dial_block_size'],
             'offer_timeout_seconds' => (int) ($validated['offer_timeout_seconds'] ?? $existing?->offer_timeout_seconds ?? 60),

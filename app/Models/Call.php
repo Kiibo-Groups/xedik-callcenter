@@ -13,15 +13,19 @@ class Call extends Model
 
     protected $fillable = [
         'tenant_id', 'lead_id', 'agent_id', 'disposition', 'direction', 'called_at',
-        'duration', 'notes', 'scheduled_at', 'is_scheduled', 'completed', 'recording_id', 'uniqueid', 'dialer_campaign',
+        'duration', 'notes', 'scheduled_at', 'is_scheduled', 'appointment_type',
+        'completed', 'recording_id', 'uniqueid', 'dialer_campaign',
+        'wa_confirmation_sent_at', 'wa_reminder_sent_at',
     ];
 
     protected $casts = [
-        'called_at'    => 'datetime',
-        'scheduled_at' => 'datetime',
-        'is_scheduled' => 'boolean',
-        'completed'    => 'boolean',
-        'duration'     => 'integer',
+        'called_at'               => 'datetime',
+        'scheduled_at'            => 'datetime',
+        'is_scheduled'            => 'boolean',
+        'completed'               => 'boolean',
+        'duration'                => 'integer',
+        'wa_confirmation_sent_at' => 'datetime',
+        'wa_reminder_sent_at'     => 'datetime',
     ];
 
     public function lead()

@@ -419,9 +419,24 @@
                             <div style="font-weight:600;font-size:13px;color:#92400e;">
                                 {{ $sc->scheduled_at?->format('M d, Y') }}
                             </div>
-                            <div style="font-size:12px;color:#b45309;">
-                                {{ $sc->scheduled_at?->format('H:i') }} · {{ $sc->disposition_label }}
+                            <div style="font-size:12px;color:#b45309;display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:2px;">
+                                <span>{{ $sc->scheduled_at?->format('H:i') }} · {{ $sc->disposition_label }}</span>
+                                @if($sc->wa_confirmation_sent_at)
+                                    <span class="badge" style="background:#dcfce7;color:#166534;font-size:10px;padding:2px 6px;">
+                                        <i class="bi bi-whatsapp"></i> Confirmado
+                                    </span>
+                                @endif
+                                @if($sc->wa_reminder_sent_at)
+                                    <span class="badge" style="background:#e0f2fe;color:#0369a1;font-size:10px;padding:2px 6px;">
+                                        <i class="bi bi-bell-fill"></i> Recordatorio
+                                    </span>
+                                @endif
                             </div>
+                            @if(!empty($sc->notes))
+                                <div style="font-size:11px;color:#78350f;margin-top:3px;font-style:italic;">
+                                    {{ Str::limit($sc->notes, 80) }}
+                                </div>
+                            @endif
                         </div>
                        @if($canEdit)
                         <button class="btn btn-xs btn-success complete-call-btn" data-call-id="{{ $sc->id }}" title="Mark Complete">

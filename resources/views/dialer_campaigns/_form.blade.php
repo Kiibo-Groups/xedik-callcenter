@@ -137,6 +137,54 @@
 
 <div style="margin-top:1.25rem;padding-top:1rem;border-top:1px dashed var(--border-color, #e2e8f0);">
     <div style="font-weight:600;font-size:13px;margin-bottom:8px;display:flex;align-items:center;gap:6px;color:var(--text-primary, #0f172a);">
+        <i class="bi bi-whatsapp text-success"></i> Automatización de Citas / Agenda por WhatsApp
+    </div>
+    <div class="form-row cols-2">
+        <div class="form-group">
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;">
+                <input type="checkbox" name="appointment_wa_confirmation" value="1" {{ old('appointment_wa_confirmation', '1') ? 'checked' : '' }}>
+                Enviar WhatsApp de confirmación al agendar
+            </label>
+            <div class="form-hint">Dispara automáticamente un mensaje oficial al prospecto confirmando día y hora.</div>
+            <div style="margin-top:8px;">
+                <label class="form-label" style="font-size:12px;">Plantilla de Confirmación</label>
+                <select name="confirmation_wa_template_id" class="form-control" style="font-size:12px;">
+                    <option value="">-- Automática (Default) --</option>
+                    @if(isset($waTemplates))
+                        @foreach($waTemplates as $tmpl)
+                            <option value="{{ $tmpl->id }}" {{ old('confirmation_wa_template_id') == $tmpl->id ? 'selected' : '' }}>
+                                {{ $tmpl->display_name }} ({{ $tmpl->name }})
+                            </option>
+                        @endforeach
+                    @endif
+                </select>
+            </div>
+        </div>
+        <div class="form-group">
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;">
+                <input type="checkbox" name="appointment_wa_reminder" value="1" {{ old('appointment_wa_reminder', '1') ? 'checked' : '' }}>
+                Enviar WhatsApp de recordatorio el día de la cita
+            </label>
+            <div class="form-hint">Dispara un recordatorio la mañana de la fecha acordada para evitar ausencias.</div>
+            <div style="margin-top:8px;">
+                <label class="form-label" style="font-size:12px;">Plantilla de Recordatorio</label>
+                <select name="reminder_wa_template_id" class="form-control" style="font-size:12px;">
+                    <option value="">-- Automática (Default) --</option>
+                    @if(isset($waTemplates))
+                        @foreach($waTemplates as $tmpl)
+                            <option value="{{ $tmpl->id }}" {{ old('reminder_wa_template_id') == $tmpl->id ? 'selected' : '' }}>
+                                {{ $tmpl->display_name }} ({{ $tmpl->name }})
+                            </option>
+                        @endforeach
+                    @endif
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div style="margin-top:1.25rem;padding-top:1rem;border-top:1px dashed var(--border-color, #e2e8f0);">
+    <div style="font-weight:600;font-size:13px;margin-bottom:8px;display:flex;align-items:center;gap:6px;color:var(--text-primary, #0f172a);">
         <i class="bi bi-calendar-event text-primary"></i> Programación / Scheduling (Opcional)
     </div>
     <div class="form-row cols-2">
