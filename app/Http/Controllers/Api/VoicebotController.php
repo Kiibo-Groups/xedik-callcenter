@@ -42,8 +42,9 @@ class VoicebotController extends Controller
         $recordingId = trim((string)$request->input('recording_id', ''));
 
         // 1. Resolver el Lead existente de forma dinámica
+        // Nota: Si viene campaign_id, lead_id corresponde al ID de la tabla dinámica dl_XX_leads, por lo que buscamos en leads por teléfono
         $lead = null;
-        if ($leadId) {
+        if ($leadId && empty($campaignId)) {
             $lead = Lead::withoutGlobalScopes()->find($leadId);
         }
 
@@ -220,7 +221,7 @@ class VoicebotController extends Controller
      */
     private function parseDynamicScheduledDate(?string $dateStr, string $transcript): Carbon
     {
-        $d = Carbon::now();
+        $d = Carbon::now('America/Mexico_City');
 
         // 1. Extraer las últimas intervenciones del diálogo donde se concreta el acuerdo final
         $lines = array_filter(array_map('trim', explode("\n", $transcript)));
@@ -229,14 +230,38 @@ class VoicebotController extends Controller
         $lowerClosing = mb_strtolower($textToAnalyze);
         $fullLower = mb_strtolower($transcript);
 
+        // 1.5. Detectar expresiones de tiempo relativo ("en 10 minutos", "en diez minutos", "en media hora", "en 1 hora")
+        if (preg_match('/\ben\s+media\s+hora\b/iu', $lowerClosing)) {
+            return $d->copy()->addMinutes(30)->second(0);
+        }
+
+        if (preg_match('/\ben\s+(\d+|un|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|quince|veinte|veinticinco|treinta|cuarenta|cuarenta y cinco|cincuenta)\s+minutos?\b/iu', $lowerClosing, $relMin)) {
+            $minWords = [
+                'un' => 1, 'uno' => 1, 'dos' => 2, 'tres' => 3, 'cuatro' => 4, 'cinco' => 5,
+                'seis' => 6, 'siete' => 7, 'ocho' => 8, 'nueve' => 9, 'diez' => 10,
+                'quince' => 15, 'veinte' => 20, 'veinticinco' => 25, 'treinta' => 30,
+                'cuarenta' => 40, 'cuarenta y cinco' => 45, 'cincuenta' => 50,
+            ];
+            $rawVal = mb_strtolower(trim($relMin[1]));
+            $minsToAdd = is_numeric($rawVal) ? (int)$rawVal : ($minWords[$rawVal] ?? 10);
+            return $d->copy()->addMinutes($minsToAdd)->second(0);
+        }
+
+        if (preg_match('/\ben\s+(\d+|una|un|dos|tres|cuatro)\s+horas?\b/iu', $lowerClosing, $relHr)) {
+            $hrWords = ['una' => 1, 'un' => 1, 'dos' => 2, 'tres' => 3, 'cuatro' => 4];
+            $rawVal = mb_strtolower(trim($relHr[1]));
+            $hrsToAdd = is_numeric($rawVal) ? (int)$rawVal : ($hrWords[$rawVal] ?? 1);
+            return $d->copy()->addHours($hrsToAdd)->second(0);
+        }
+
         // Si dateStr vino como fecha explícita ISO de la herramienta IA y NO es el viejo default
         if (!empty($dateStr) && preg_match('/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/', $dateStr)) {
             // Verificar si el diálogo de cierre contradice la fecha de dateStr (por ejemplo si se acordó 'hoy')
-            if (preg_match('/\b(hoy|hoy mismo|en un rato|en \d+ minutos)\b/u', $lowerClosing)) {
+            if (preg_match('/\b(hoy|hoy mismo|en un rato)\b/u', $lowerClosing)) {
                 // Prevalece 'hoy'
             } else {
                 try {
-                    return Carbon::parse($dateStr);
+                    return Carbon::parse($dateStr, 'America/Mexico_City');
                 } catch (\Throwable $e) {}
             }
         }
