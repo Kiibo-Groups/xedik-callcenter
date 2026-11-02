@@ -216,20 +216,34 @@ class VoicebotController extends Controller
 
     /**
      * Parsear dinámicamente la fecha y hora de la cita a partir del string o transcripción.
+     * Analiza el diálogo de cierre (acuerdo final) para que las contrapropuestas del cliente prevalezcan.
      */
     private function parseDynamicScheduledDate(?string $dateStr, string $transcript): Carbon
     {
-        if (!empty($dateStr)) {
-            try {
-                return Carbon::parse($dateStr);
-            } catch (\Throwable $e) {}
-        }
-
-        $lower = mb_strtolower($transcript);
         $d = Carbon::now();
 
-        // Mapear días de la semana
+        // 1. Extraer las últimas intervenciones del diálogo donde se concreta el acuerdo final
+        $lines = array_filter(array_map('trim', explode("\n", $transcript)));
+        $closingDialogue = implode(' ', array_slice($lines, -6));
+        $textToAnalyze = trim((string)$dateStr . ' ' . $closingDialogue);
+        $lowerClosing = mb_strtolower($textToAnalyze);
+        $fullLower = mb_strtolower($transcript);
+
+        // Si dateStr vino como fecha explícita ISO de la herramienta IA y NO es el viejo default
+        if (!empty($dateStr) && preg_match('/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/', $dateStr)) {
+            // Verificar si el diálogo de cierre contradice la fecha de dateStr (por ejemplo si se acordó 'hoy')
+            if (preg_match('/\b(hoy|hoy mismo|en un rato|en \d+ minutos)\b/u', $lowerClosing)) {
+                // Prevalece 'hoy'
+            } else {
+                try {
+                    return Carbon::parse($dateStr);
+                } catch (\Throwable $e) {}
+            }
+        }
+
+        // 2. Determinar el día acordado
         $daysMap = [
+            'domingo'   => Carbon::SUNDAY,
             'lunes'     => Carbon::MONDAY,
             'martes'    => Carbon::TUESDAY,
             'miércoles' => Carbon::WEDNESDAY,
@@ -238,51 +252,72 @@ class VoicebotController extends Controller
             'viernes'   => Carbon::FRIDAY,
             'sábado'    => Carbon::SATURDAY,
             'sabado'    => Carbon::SATURDAY,
-            'domingo'   => Carbon::SUNDAY,
         ];
 
-        $targetDayOfWeek = null;
-        foreach ($daysMap as $name => $dayVal) {
-            if (str_contains($lower, $name)) {
-                $targetDayOfWeek = $dayVal;
-                break;
+        if (preg_match('/\b(hoy|hoy mismo|al rato|en un rato|en \d+ minutos)\b/u', $lowerClosing)) {
+            // Día de hoy: se mantiene la fecha actual $d
+        } elseif (preg_match('/\b(pasado mañana|pasado manana)\b/u', $lowerClosing)) {
+            $d->addDays(2);
+        } elseif (preg_match('/\b(mañana|manana)\b/u', $lowerClosing)) {
+            $d->addDay();
+        } else {
+            $foundDay = null;
+            foreach ($daysMap as $dayName => $dayVal) {
+                if (preg_match('/\b' . $dayName . '\b/u', $lowerClosing)) {
+                    $foundDay = $dayVal;
+                    break;
+                }
+            }
+
+            if ($foundDay !== null) {
+                $daysUntil = ($foundDay - $d->dayOfWeek + 7) % 7;
+                if ($daysUntil === 0) $daysUntil = 7;
+                $d->addDays($daysUntil);
+            } elseif (preg_match('/\b(hoy|hoy mismo)\b/u', $fullLower)) {
+                // Mencionado 'hoy' en la conversación
+            } else {
+                $d->addDays(2);
             }
         }
 
-        if ($targetDayOfWeek !== null) {
-            $daysUntil = ($targetDayOfWeek - $d->dayOfWeek + 7) % 7;
-            if ($daysUntil === 0) $daysUntil = 7; // Próximo día
-            $d->addDays($daysUntil);
-        } elseif (str_contains($lower, 'mañana') || str_contains($lower, 'manana')) {
-            $d->addDay();
-        } elseif (str_contains($lower, 'pasado mañana') || str_contains($lower, 'pasado manana')) {
-            $d->addDays(2);
-        } else {
-            $d->addDays(2); // Default 2 días adelante
-        }
+        // 3. Determinar la hora acordada
+        $hour = 16;
+        $minute = 0;
 
-        // Mapear hora
-        $hour = 16; // Default 4:00 PM
-        if (preg_match('/(\d{1,2})(?::(\d{2}))?\s*(am|pm|de la mañana|de la tarde|de la noche)/i', $lower, $matches)) {
-            $h = (int)$matches[1];
-            $meridiem = strtolower($matches[3] ?? '');
+        if (preg_match('/(\d{1,2})(?::(\d{2}))?\s*(am|pm|de la mañana|de la tarde|de la noche)/iu', $lowerClosing, $m)) {
+            $h = (int)$m[1];
+            $minute = !empty($m[2]) ? (int)$m[2] : 0;
+            $meridiem = strtolower($m[3]);
             if ((str_contains($meridiem, 'pm') || str_contains($meridiem, 'tarde') || str_contains($meridiem, 'noche')) && $h < 12) {
                 $h += 12;
             }
             $hour = $h;
-        } elseif (str_contains($lower, '4:') || str_contains($lower, 'cuatro')) {
+        } elseif (preg_match('/\ba las\s+(una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?:\s+(?:y\s+media|de la tarde|de la noche|de la mañana))?\b/iu', $lowerClosing, $m)) {
+            $wordMap = [
+                'una' => 13, 'dos' => 14, 'tres' => 15, 'cuatro' => 16,
+                'cinco' => 17, 'seis' => 18, 'siete' => 19, 'ocho' => 20,
+                'nueve' => 9, 'diez' => 10, 'once' => 11, 'doce' => 12
+            ];
+            $word = strtolower($m[1]);
+            $hour = $wordMap[$word] ?? 16;
+            if (str_contains($m[0], 'media')) $minute = 30;
+        } elseif (preg_match('/\b(?:3pm|3 pm|3:00|a las 3|a las tres)\b/iu', $lowerClosing)) {
+            $hour = 15;
+        } elseif (preg_match('/\b(?:4pm|4 pm|4:00|a las 4|a las cuatro)\b/iu', $lowerClosing)) {
             $hour = 16;
-        } elseif (str_contains($lower, '5:') || str_contains($lower, 'cinco')) {
+        } elseif (preg_match('/\b(?:5pm|5 pm|5:00|a las 5|a las cinco)\b/iu', $lowerClosing)) {
             $hour = 17;
-        } elseif (str_contains($lower, '10:') || str_contains($lower, 'diez')) {
+        } elseif (preg_match('/\b(?:2pm|2 pm|2:00|a las 2|a las dos)\b/iu', $lowerClosing)) {
+            $hour = 14;
+        } elseif (preg_match('/\b(?:10am|10 am|10:00|a las 10|a las diez)\b/iu', $lowerClosing)) {
             $hour = 10;
-        } elseif (str_contains($lower, '11:') || str_contains($lower, 'once')) {
+        } elseif (preg_match('/\b(?:11am|11 am|11:00|a las 11|a las once)\b/iu', $lowerClosing)) {
             $hour = 11;
-        } elseif (str_contains($lower, '12:') || str_contains($lower, 'doce')) {
+        } elseif (preg_match('/\b(?:12pm|12 pm|12:00|a las 12|a las doce)\b/iu', $lowerClosing)) {
             $hour = 12;
         }
 
-        $d->setHour($hour)->setMinute(0)->setSecond(0);
+        $d->setHour($hour)->setMinute($minute)->setSecond(0);
         return $d;
     }
 
