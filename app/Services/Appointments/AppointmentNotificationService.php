@@ -54,96 +54,97 @@ class AppointmentNotificationService
 
         $apiBase = env('WHATSAPP_API_BASE_URL', 'https://graph.facebook.com/v25.0');
         $wamid = null;
-        $bodyText = "🗓️ CITA CONFIRMADA: Hola {$leadName}, confirmamos tu cita/demostración para el {$dateFormatted}. En breve un asesor te brindará seguimiento.";
+        $bodyText = "🗓️ Hola {$leadName}, confirmamos tu cita para el {$dateFormatted}. En breve un asesor se pondrá en contacto contigo.";
 
-        // 4. Intentar enviar primero como mensaje directo con los datos reales de la cita
-        try {
-            $textResp = Http::withToken($account->access_token)
+        // 4. Enviar SIEMPRE primero con plantilla oficial aprobada de Meta (funciona con o sin ventana de 24h abierta)
+        $template = $config['confirmation_template'] ?? null;
+        if (!$template || $template->name === 'prueba_hello_world') {
+            $template = WhatsappTemplate::withoutGlobalScopes()
+                ->where('is_active', true)
+                ->where('name', 'confirmacion_cita')
+                ->first()
+                ?: $template
+                ?: WhatsappTemplate::withoutGlobalScopes()
+                ->where('is_active', true)
+                ->where('name', 'prueba_hello_world')
+                ->first();
+        }
+
+        if ($template) {
+            $langCode = $template->language ?: 'es_MX';
+            $tplPayload = [
+                'name'     => $template->name,
+                'language' => ['code' => $langCode],
+            ];
+
+            if ($template->name === 'confirmacion_cita') {
+                $tplPayload['components'] = [
+                    [
+                        'type'       => 'body',
+                        'parameters' => [
+                            ['type' => 'text', 'text' => $leadName],
+                            ['type' => 'text', 'text' => $dateFormatted],
+                        ]
+                    ]
+                ];
+            }
+
+            $response = Http::withToken($account->access_token)
                 ->timeout(10)
                 ->post("{$apiBase}/{$account->phone_number_id}/messages", [
                     'messaging_product' => 'whatsapp',
                     'to'                => $waPhone,
-                    'type'              => 'text',
-                    'text'              => ['body' => $bodyText],
+                    'type'              => 'template',
+                    'template'          => $tplPayload,
                 ]);
-            if ($textResp->successful()) {
-                $wamid = $textResp->json('messages.0.id');
+
+            // Rescate con fallback de idiomas si Meta arroja 132001
+            if ($response->failed() && str_contains($response->body(), '132001')) {
+                $fallbacks = array_values(array_filter(['es_MX', 'es', 'es_ES', 'es_LA', 'en_US'], fn($l) => $l !== $langCode));
+                foreach ($fallbacks as $fbLang) {
+                    $tplPayload['language']['code'] = $fbLang;
+                    $retry = Http::withToken($account->access_token)
+                        ->timeout(10)
+                        ->post("{$apiBase}/{$account->phone_number_id}/messages", [
+                            'messaging_product' => 'whatsapp',
+                            'to'                => $waPhone,
+                            'type'              => 'template',
+                            'template'          => $tplPayload,
+                        ]);
+                    if ($retry->successful()) {
+                        $response = $retry;
+                        $template->update(['language' => $fbLang]);
+                        break;
+                    }
+                }
             }
-        } catch (\Throwable $e) {
-            Log::warning("Could not send direct text confirmation: " . $e->getMessage());
+
+            if ($response->successful()) {
+                $wamid = $response->json('messages.0.id');
+            } else {
+                Log::error("Failed sending WhatsApp confirmation template for Call #{$call->id}", [
+                    'error' => $response->body(),
+                    'phone' => $waPhone
+                ]);
+            }
         }
 
-        // 5. Si la ventana de 24h está cerrada, usar plantilla oficial de Meta
+        // 5. Fallback a texto directo solo si la plantilla no pudo enviarse
         if (!$wamid) {
-            $template = $config['confirmation_template'] ?? null;
-            if (!$template) {
-                $template = WhatsappTemplate::withoutGlobalScopes()
-                    ->where('is_active', true)
-                    ->where('name', 'confirmacion_cita')
-                    ->first()
-                    ?: WhatsappTemplate::withoutGlobalScopes()
-                    ->where('is_active', true)
-                    ->where('name', 'prueba_hello_world')
-                    ->first();
-            }
-
-            if ($template) {
-                $langCode = $template->language ?: 'es_MX';
-                $tplPayload = [
-                    'name'     => $template->name,
-                    'language' => ['code' => $langCode],
-                ];
-
-                if ($template->name === 'confirmacion_cita') {
-                    $tplPayload['components'] = [
-                        [
-                            'type'       => 'body',
-                            'parameters' => [
-                                ['type' => 'text', 'text' => $leadName],
-                                ['type' => 'text', 'text' => $dateFormatted],
-                            ]
-                        ]
-                    ];
-                }
-
-                $response = Http::withToken($account->access_token)
+            try {
+                $textResp = Http::withToken($account->access_token)
                     ->timeout(10)
                     ->post("{$apiBase}/{$account->phone_number_id}/messages", [
                         'messaging_product' => 'whatsapp',
                         'to'                => $waPhone,
-                        'type'              => 'template',
-                        'template'          => $tplPayload,
+                        'type'              => 'text',
+                        'text'              => ['body' => $bodyText],
                     ]);
-
-                // Rescate con fallback de idiomas si Meta arroja 132001
-                if ($response->failed() && str_contains($response->body(), '132001')) {
-                    $fallbacks = array_values(array_filter(['es_MX', 'es', 'es_ES', 'es_LA', 'en_US'], fn($l) => $l !== $langCode));
-                    foreach ($fallbacks as $fbLang) {
-                        $tplPayload['language']['code'] = $fbLang;
-                        $retry = Http::withToken($account->access_token)
-                            ->timeout(10)
-                            ->post("{$apiBase}/{$account->phone_number_id}/messages", [
-                                'messaging_product' => 'whatsapp',
-                                'to'                => $waPhone,
-                                'type'              => 'template',
-                                'template'          => $tplPayload,
-                            ]);
-                        if ($retry->successful()) {
-                            $response = $retry;
-                            $template->update(['language' => $fbLang]);
-                            break;
-                        }
-                    }
+                if ($textResp->successful()) {
+                    $wamid = $textResp->json('messages.0.id');
                 }
-
-                if ($response->successful()) {
-                    $wamid = $response->json('messages.0.id');
-                } else {
-                    Log::error("Failed sending WhatsApp confirmation template for Call #{$call->id}", [
-                        'error' => $response->body(),
-                        'phone' => $waPhone
-                    ]);
-                }
+            } catch (\Throwable $e) {
+                Log::warning("Could not send direct text confirmation: " . $e->getMessage());
             }
         }
 
@@ -195,69 +196,70 @@ class AppointmentNotificationService
 
         $apiBase = env('WHATSAPP_API_BASE_URL', 'https://graph.facebook.com/v25.0');
         $wamid = null;
-        $bodyText = "⏰ RECORDATORIO DE CITA: Hola {$leadName}, te recordamos que el día de hoy tienes programada tu demostración/visita a las {$timeFormatted}.";
+        $bodyText = "🗓️ Hola {$leadName}, confirmamos tu cita para el hoy a las {$timeFormatted}. En breve un asesor se pondrá en contacto contigo.";
 
-        // 1. Intentar enviar mensaje de texto enriquecido con fecha/hora directa
-        try {
-            $textResp = Http::withToken($account->access_token)
+        // 1. Enviar SIEMPRE primero con plantilla oficial aprobada de Meta (funciona con o sin ventana de 24h)
+        $template = $config['reminder_template'] ?? null;
+        if (!$template || $template->name === 'prueba_hello_world') {
+            $template = WhatsappTemplate::withoutGlobalScopes()
+                ->where('is_active', true)
+                ->where('name', 'confirmacion_cita')
+                ->first()
+                ?: $template
+                ?: WhatsappTemplate::withoutGlobalScopes()
+                ->where('is_active', true)
+                ->where('name', 'prueba_hello_world')
+                ->first();
+        }
+
+        if ($template) {
+            $langCode = $template->language ?: 'es_MX';
+            $tplPayload = [
+                'name'     => $template->name,
+                'language' => ['code' => $langCode],
+            ];
+
+            if ($template->name === 'confirmacion_cita') {
+                $tplPayload['components'] = [
+                    [
+                        'type'       => 'body',
+                        'parameters' => [
+                            ['type' => 'text', 'text' => $leadName],
+                            ['type' => 'text', 'text' => "hoy a las {$timeFormatted}"],
+                        ]
+                    ]
+                ];
+            }
+
+            $response = Http::withToken($account->access_token)
                 ->timeout(10)
                 ->post("{$apiBase}/{$account->phone_number_id}/messages", [
                     'messaging_product' => 'whatsapp',
                     'to'                => $waPhone,
-                    'type'              => 'text',
-                    'text'              => ['body' => $bodyText],
+                    'type'              => 'template',
+                    'template'          => $tplPayload,
                 ]);
-            if ($textResp->successful()) {
-                $wamid = $textResp->json('messages.0.id');
-            }
-        } catch (\Throwable $e) {}
 
-        // 2. Si falló el texto directo, recurrir a plantilla oficial
+            if ($response->successful()) {
+                $wamid = $response->json('messages.0.id');
+            }
+        }
+
+        // 2. Fallback a texto directo solo si la plantilla falló
         if (!$wamid) {
-            $template = $config['reminder_template'] ?? null;
-            if (!$template) {
-                $template = WhatsappTemplate::withoutGlobalScopes()
-                    ->where('is_active', true)
-                    ->where('name', 'confirmacion_cita')
-                    ->first()
-                    ?: WhatsappTemplate::withoutGlobalScopes()
-                    ->where('is_active', true)
-                    ->where('name', 'prueba_hello_world')
-                    ->first();
-            }
-
-            if ($template) {
-                $langCode = $template->language ?: 'es_MX';
-                $tplPayload = [
-                    'name'     => $template->name,
-                    'language' => ['code' => $langCode],
-                ];
-
-                if ($template->name === 'confirmacion_cita') {
-                    $tplPayload['components'] = [
-                        [
-                            'type'       => 'body',
-                            'parameters' => [
-                                ['type' => 'text', 'text' => $leadName],
-                                ['type' => 'text', 'text' => "hoy a las {$timeFormatted}"],
-                            ]
-                        ]
-                    ];
-                }
-
-                $response = Http::withToken($account->access_token)
+            try {
+                $textResp = Http::withToken($account->access_token)
                     ->timeout(10)
                     ->post("{$apiBase}/{$account->phone_number_id}/messages", [
                         'messaging_product' => 'whatsapp',
                         'to'                => $waPhone,
-                        'type'              => 'template',
-                        'template'          => $tplPayload,
+                        'type'              => 'text',
+                        'text'              => ['body' => $bodyText],
                     ]);
-
-                if ($response->successful()) {
-                    $wamid = $response->json('messages.0.id');
+                if ($textResp->successful()) {
+                    $wamid = $textResp->json('messages.0.id');
                 }
-            }
+            } catch (\Throwable $e) {}
         }
 
         if ($wamid) {

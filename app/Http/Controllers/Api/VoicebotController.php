@@ -256,14 +256,15 @@ class VoicebotController extends Controller
 
         // Si dateStr vino como fecha explícita ISO de la herramienta IA y NO es el viejo default
         if (!empty($dateStr) && preg_match('/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/', $dateStr)) {
-            // Verificar si el diálogo de cierre contradice la fecha de dateStr (por ejemplo si se acordó 'hoy')
-            if (preg_match('/\b(hoy|hoy mismo|en un rato)\b/u', $lowerClosing)) {
-                // Prevalece 'hoy'
-            } else {
-                try {
-                    return Carbon::parse($dateStr, 'America/Mexico_City');
-                } catch (\Throwable $e) {}
-            }
+            try {
+                $parsedIso = Carbon::parse($dateStr, 'America/Mexico_City');
+                // Si el acuerdo dice 'hoy' pero el ISO traía otra fecha futura, ajustar la fecha a hoy conservando la hora si no es el default 16:00
+                if (preg_match('/\b(hoy|hoy mismo|en un rato)\b/u', $lowerClosing) && !$parsedIso->isSameDay($d)) {
+                    // Continuar al parser de hora para 'hoy'
+                } else {
+                    return $parsedIso;
+                }
+            } catch (\Throwable $e) {}
         }
 
         // 2. Determinar el día acordado
@@ -309,23 +310,30 @@ class VoicebotController extends Controller
         $hour = 16;
         $minute = 0;
 
-        if (preg_match('/(\d{1,2})(?::(\d{2}))?\s*(am|pm|de la mañana|de la tarde|de la noche)/iu', $lowerClosing, $m)) {
+        if (preg_match('/(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?|de la mañana|de la tarde|de la noche)/iu', $lowerClosing, $m)) {
             $h = (int)$m[1];
             $minute = !empty($m[2]) ? (int)$m[2] : 0;
-            $meridiem = strtolower($m[3]);
+            $meridiem = str_replace('.', '', strtolower($m[3]));
             if ((str_contains($meridiem, 'pm') || str_contains($meridiem, 'tarde') || str_contains($meridiem, 'noche')) && $h < 12) {
                 $h += 12;
             }
             $hour = $h;
-        } elseif (preg_match('/\ba las\s+(una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?:\s+(?:y\s+media|de la tarde|de la noche|de la mañana))?\b/iu', $lowerClosing, $m)) {
+        } elseif (preg_match('/\ba las\s+(una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?:\s+(?:y\s+)?(diez|quince|cuarto|veinte|veinticinco|treinta|media|cuarenta y cinco|cuarenta|cincuenta))?(?:\s+(?:de la tarde|de la noche|de la mañana))?\b/iu', $lowerClosing, $m)) {
             $wordMap = [
                 'una' => 13, 'dos' => 14, 'tres' => 15, 'cuatro' => 16,
                 'cinco' => 17, 'seis' => 18, 'siete' => 19, 'ocho' => 20,
                 'nueve' => 9, 'diez' => 10, 'once' => 11, 'doce' => 12
             ];
+            $minWordMap = [
+                'diez' => 10, 'quince' => 15, 'cuarto' => 15, 'veinte' => 20,
+                'veinticinco' => 25, 'treinta' => 30, 'media' => 30,
+                'cuarenta' => 40, 'cuarenta y cinco' => 45, 'cincuenta' => 50
+            ];
             $word = strtolower($m[1]);
             $hour = $wordMap[$word] ?? 16;
-            if (str_contains($m[0], 'media')) $minute = 30;
+            if (!empty($m[2])) {
+                $minute = $minWordMap[strtolower(trim($m[2]))] ?? 0;
+            }
         } elseif (preg_match('/\b(?:3pm|3 pm|3:00|a las 3|a las tres)\b/iu', $lowerClosing)) {
             $hour = 15;
         } elseif (preg_match('/\b(?:4pm|4 pm|4:00|a las 4|a las cuatro)\b/iu', $lowerClosing)) {
