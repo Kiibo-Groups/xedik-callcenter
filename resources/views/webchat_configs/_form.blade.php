@@ -26,6 +26,20 @@ $currentIcon  = old('icon', $config->icon ?? 'bi-chat-dots-fill');
 @endphp
 
 {{-- Tabs nav --}}
+@if($isSuperAdmin && !$isEdit)
+<div style="background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.2);border-radius:8px;padding:12px 16px;margin-bottom:18px;">
+    <label class="form-label" style="font-size:12px;font-weight:600;margin-bottom:4px;">Tenant *</label>
+    <select name="tenant_id" id="webchatTenantSelect" class="form-control" style="max-width:320px;" required>
+        <option value="">— Select Tenant —</option>
+        @foreach($tenants as $t)
+            <option value="{{ $t->id }}" {{ old('tenant_id') == $t->id ? 'selected' : '' }}>{{ $t->name }}</option>
+        @endforeach
+    </select>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">As SuperAdmin, assign this webchat widget to a specific tenant.</div>
+    @error('tenant_id') <div style="color:#dc2626;font-size:12px;margin-top:4px;">{{ $message }}</div> @enderror
+</div>
+@endif
+
 <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;">
     @foreach([
         'tab-appearance' => 'Appearance',
@@ -131,11 +145,11 @@ $currentIcon  = old('icon', $config->icon ?? 'bi-chat-dots-fill');
         </div>
         <div>
             <label class="form-label">Omni Queue <span style="color:#dc2626;">*</span></label>
-            <select name="omni_queue_id" class="form-control" required>
+            <select name="omni_queue_id" id="webchatQueueSelect" class="form-control" required>
                 <option value="">Select queue...</option>
                 @foreach($queues as $q)
-                    <option value="{{ $q->id }}" {{ old('omni_queue_id', $config->omni_queue_id ?? '') == $q->id ? 'selected' : '' }}>
-                        {{ $q->name }}
+                    <option value="{{ $q->id }}" data-tenant-id="{{ $q->tenant_id }}" {{ old('omni_queue_id', $config->omni_queue_id ?? '') == $q->id ? 'selected' : '' }}>
+                        {{ $q->name }} @if($isSuperAdmin && $q->tenant) ({{ $q->tenant->name }}) @endif
                     </option>
                 @endforeach
             </select>

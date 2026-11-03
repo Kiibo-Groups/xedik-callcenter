@@ -33,21 +33,44 @@ class WebchatConfigController extends Controller
 
     public function create()
     {
-        $queues = OmniQueue::where('active', true)
+        $user         = auth()->user();
+        $isSuperAdmin = $user->isSuperAdmin();
+
+        $queuesQuery = OmniQueue::where('active', true)
             ->where(function ($q) {
                 $q->where('type', 'chat')->orWhere('type', 'omni');
-            })
-            ->get();
-        return view('webchat_configs.create', compact('queues'));
+            });
+
+        if ($isSuperAdmin) {
+            $queuesQuery->withoutGlobalScope(\App\Models\Scopes\TenantScope::class)->with('tenant');
+            $tenants = \App\Models\Tenant::orderBy('name')->get();
+        } else {
+            $tenants = collect();
+        }
+
+        $queues = $queuesQuery->get();
+
+        return view('webchat_configs.create', compact('queues', 'isSuperAdmin', 'tenants'));
     }
 
     public function store(Request $request)
     {
+        $user         = auth()->user();
+        $isSuperAdmin = $user->isSuperAdmin();
+
         $data = $this->validateRequest($request);
         $data['interest_enabled'] = $request->boolean('interest_enabled');
         $data['privacy_enabled']  = $request->boolean('privacy_enabled');
         $data['is_active']        = $request->boolean('is_active', true);
-        $data['tenant_id']        = auth()->user()->tenant_id;
+
+        if ($isSuperAdmin) {
+            $queue = OmniQueue::withoutGlobalScope(\App\Models\Scopes\TenantScope::class)->find($data['omni_queue_id']);
+            $data['tenant_id'] = $request->filled('tenant_id') 
+                ? (int)$request->tenant_id 
+                : ($queue?->tenant_id ?? 2);
+        } else {
+            $data['tenant_id'] = $user->tenant_id;
+        }
 
         if (empty($data['business_hours'])) {
             $data['business_hours'] = [
@@ -68,14 +91,28 @@ class WebchatConfigController extends Controller
 
     public function edit(WebchatConfig $webchatConfig)
     {
-        $queues = OmniQueue::where('active', true)
+        $user         = auth()->user();
+        $isSuperAdmin = $user->isSuperAdmin();
+
+        $queuesQuery = OmniQueue::where('active', true)
             ->where(function ($q) {
                 $q->where('type', 'chat')->orWhere('type', 'omni');
-            })
-            ->get();
+            });
+
+        if ($isSuperAdmin) {
+            $queuesQuery->withoutGlobalScope(\App\Models\Scopes\TenantScope::class)->with('tenant');
+            $tenants = \App\Models\Tenant::orderBy('name')->get();
+        } else {
+            $tenants = collect();
+        }
+
+        $queues = $queuesQuery->get();
+
         return view('webchat_configs.edit', [
-            'config' => $webchatConfig,
-            'queues' => $queues,
+            'config'       => $webchatConfig,
+            'queues'       => $queues,
+            'isSuperAdmin' => $isSuperAdmin,
+            'tenants'      => $tenants,
         ]);
     }
 
