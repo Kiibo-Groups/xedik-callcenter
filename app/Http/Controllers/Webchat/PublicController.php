@@ -90,16 +90,19 @@ class PublicController extends Controller
 
     public function start(Request $request, string $publicToken)
     {
-        // Obtener datos del request JSON, form-data o raw body
-        $raw = $request->json()->all();
-        if (empty($raw)) {
-            $raw = $request->all();
-        }
-        if (empty($raw)) {
-            $decoded = json_decode($request->getContent(), true);
+        $rawBody = file_get_contents('php://input');
+        $raw = [];
+        if (!empty($rawBody)) {
+            $decoded = json_decode($rawBody, true);
             if (is_array($decoded)) {
                 $raw = $decoded;
             }
+        }
+        if (empty($raw)) {
+            $raw = $request->json()->all();
+        }
+        if (empty($raw)) {
+            $raw = $request->all();
         }
         if (!empty($raw)) {
             $request->merge($raw);
