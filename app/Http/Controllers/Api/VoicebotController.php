@@ -80,18 +80,20 @@ class VoicebotController extends Controller
 
         if (!empty($recordingId) && str_starts_with($recordingId, 'conv_')) {
             try {
-                $apiKey = config('services.elevenlabs.api_key', env('ELEVENLABS_API_KEY', 'sk_e4cbd19dec8a1303347c477783f6c7c3d850ffecb0be4437'));
-                $elResp = Http::withHeaders(['xi-api-key' => $apiKey])
-                    ->timeout(5)
-                    ->get("https://api.elevenlabs.io/v1/convai/conversations/{$recordingId}");
+                $apiKey = config('services.elevenlabs.api_key');
+                if (!empty($apiKey)) {
+                    $elResp = Http::withHeaders(['xi-api-key' => $apiKey])
+                        ->timeout(5)
+                        ->get("https://api.elevenlabs.io/v1/convai/conversations/{$recordingId}");
 
-                if ($elResp->successful()) {
-                    $convData = $elResp->json();
-                    $analysis = $convData['analysis'] ?? [];
-                    $sentiment = $analysis['sentiment_analysis'] ?? [];
-                    $sentimentLabel = ucfirst($sentiment['overall_label'] ?? 'Neutral');
-                    $frustrationScore = round(($sentiment['overall_frustration_score'] ?? 0) * 100);
-                    $callSummary = $analysis['transcript_summary'] ?? ($analysis['call_summary_title'] ?? '');
+                    if ($elResp->successful()) {
+                        $convData = $elResp->json();
+                        $analysis = $convData['analysis'] ?? [];
+                        $sentiment = $analysis['sentiment_analysis'] ?? [];
+                        $sentimentLabel = ucfirst($sentiment['overall_label'] ?? 'Neutral');
+                        $frustrationScore = round(($sentiment['overall_frustration_score'] ?? 0) * 100);
+                        $callSummary = $analysis['transcript_summary'] ?? ($analysis['call_summary_title'] ?? '');
+                    }
                 }
             } catch (\Throwable $e) {
                 Log::warning("No se pudo obtener analisis de ElevenLabs", ['error' => $e->getMessage()]);

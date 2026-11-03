@@ -89,15 +89,17 @@ class DialerApiController extends Controller
         // 1. Soporte para grabaciones de ElevenLabs Voicebot (conv_...)
         if (str_starts_with($call->recording_id, 'conv_')) {
             try {
-                $apiKey = env('ELEVENLABS_API_KEY', 'sk_e4cbd19dec8a1303347c477783f6c7c3d850ffecb0be4437');
-                $response = Http::withHeaders(['xi-api-key' => $apiKey])
-                    ->get("https://api.elevenlabs.io/v1/convai/conversations/{$call->recording_id}/audio");
+                $apiKey = config('services.elevenlabs.api_key');
+                if (!empty($apiKey)) {
+                    $response = Http::withHeaders(['xi-api-key' => $apiKey])
+                        ->get("https://api.elevenlabs.io/v1/convai/conversations/{$call->recording_id}/audio");
 
-                if ($response->successful()) {
-                    return response($response->body(), 200, [
-                        'Content-Type'  => 'audio/mpeg',
-                        'Accept-Ranges' => 'bytes',
-                    ]);
+                    if ($response->successful()) {
+                        return response($response->body(), 200, [
+                            'Content-Type'  => 'audio/mpeg',
+                            'Accept-Ranges' => 'bytes',
+                        ]);
+                    }
                 }
             } catch (\Exception $e) {
                 Log::error("Error descargando audio de ElevenLabs: " . $e->getMessage());
@@ -152,15 +154,17 @@ class DialerApiController extends Controller
         // 1. Soporte para grabaciones de ElevenLabs Voicebot (conv_...)
         if (str_starts_with($uid, 'conv_')) {
             try {
-                $apiKey = env('ELEVENLABS_API_KEY', 'sk_e4cbd19dec8a1303347c477783f6c7c3d850ffecb0be4437');
-                $response = Http::withHeaders(['xi-api-key' => $apiKey])
-                    ->get("https://api.elevenlabs.io/v1/convai/conversations/{$uid}/audio");
+                $apiKey = config('services.elevenlabs.api_key');
+                if (!empty($apiKey)) {
+                    $response = Http::withHeaders(['xi-api-key' => $apiKey])
+                        ->get("https://api.elevenlabs.io/v1/convai/conversations/{$uid}/audio");
 
-                if ($response->successful()) {
-                    return response($response->body(), 200, [
-                        'Content-Type'  => 'audio/mpeg',
-                        'Accept-Ranges' => 'bytes',
-                    ]);
+                    if ($response->successful()) {
+                        return response($response->body(), 200, [
+                            'Content-Type'  => 'audio/mpeg',
+                            'Accept-Ranges' => 'bytes',
+                        ]);
+                    }
                 }
             } catch (\Exception $e) {
                 Log::error("Error descargando audio de ElevenLabs por UID: " . $e->getMessage());

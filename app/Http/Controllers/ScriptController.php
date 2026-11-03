@@ -335,7 +335,11 @@ class ScriptController extends Controller
                 $firstMessage = trim($matches[1]);
             }
 
-            $apiKey = config('services.elevenlabs.api_key', env('ELEVENLABS_API_KEY', 'sk_e4cbd19dec8a1303347c477783f6c7c3d850ffecb0be4437'));
+            $apiKey = config('services.elevenlabs.api_key');
+            if (empty($apiKey)) {
+                Log::warning("syncToElevenLabs: ELEVENLABS_API_KEY no está configurada en .env.");
+                return;
+            }
 
             $patchData = [
                 'conversation_config' => [
