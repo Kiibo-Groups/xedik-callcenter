@@ -90,23 +90,15 @@ class PublicController extends Controller
 
     public function start(Request $request, string $publicToken)
     {
-        $rawBody = file_get_contents('php://input');
-        $raw = [];
-        if (!empty($rawBody)) {
-            $decoded = json_decode($rawBody, true);
-            if (is_array($decoded)) {
-                $raw = $decoded;
-            }
-        }
+        $raw = $request->input();
         if (empty($raw)) {
-            $raw = $request->json()->all();
+            $raw = json_decode($request->getContent(), true) ?: [];
         }
-        if (empty($raw)) {
-            $raw = $request->all();
-        }
-        if (!empty($raw)) {
-            $request->merge($raw);
-        }
+        \Illuminate\Support\Facades\Log::info("Webchat start debug", [
+            'content_type' => $request->header('Content-Type'),
+            'body' => $request->getContent(),
+            'parsed' => $raw
+        ]);
 
         $config = WebchatConfig::withoutGlobalScope(TenantScope::class)
             ->where('public_token', $publicToken)
