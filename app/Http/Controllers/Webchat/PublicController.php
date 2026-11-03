@@ -26,19 +26,26 @@ class PublicController extends Controller
         if (empty($config->allowed_origin)) return;
 
         $origin  = request()->header('Origin') ?? request()->header('Referer') ?? '';
-        $allowed = rtrim($config->allowed_origin, '/');
-
-        if (str_starts_with($allowed, '*.')) {
-            $base  = substr($allowed, 2);
-            $valid = str_contains($origin, $base);
-        } else {
-            $valid = str_starts_with($origin, $allowed);
+        
+        // Si la petición viene de navegador directo sin origin/referer (ej. probando URL en barra de direcciones)
+        // o desde el propio dominio del CRM o localhost, permitir siempre
+        if (empty($origin) || str_contains($origin, 'crm.xedik.com') || str_contains($origin, 'localhost')) {
+            return;
         }
 
-        if (!$valid) {
-            abort(response()->json(['error' => 'Origin not allowed'], 403)
-                ->withHeaders(['Access-Control-Allow-Origin' => '*']));
+        $originHost  = parse_url($origin, PHP_URL_HOST) ?? $origin;
+        $allowedHost = parse_url($config->allowed_origin, PHP_URL_HOST) ?? $config->allowed_origin;
+
+        // Limpiar 'www.' para comparar dominios base limpiamente (ej. xedik.com vs www.xedik.com)
+        $cleanOrigin  = preg_replace('/^www\./i', '', strtolower($originHost));
+        $cleanAllowed = preg_replace('/^www\./i', '', strtolower($allowedHost));
+
+        if ($cleanOrigin === $cleanAllowed || str_ends_with($cleanOrigin, '.' . $cleanAllowed)) {
+            return;
         }
+
+        abort(response()->json(['error' => 'Origin not allowed'], 403)
+            ->withHeaders(['Access-Control-Allow-Origin' => '*']));
     }
 
     private function corsHeaders(): array
