@@ -57,15 +57,16 @@ class SmsTemplateController extends Controller
                 'required', 'string', 'max:100',
                 Rule::unique('sms_templates', 'name')->where('tenant_id', $tenantId),
             ],
-            'omni_queue_id' => 'nullable|exists:omni_queues,id',
+            'omni_queue_id' => 'nullable|integer|exists:omni_queues,id',
             'body'          => 'required|string|max:1600',
         ]);
 
-        $this->assertQueueBelongsToTenant($data['omni_queue_id'] ?? null, $tenantId);
+        $omniQueueId = !empty($data['omni_queue_id']) ? (int) $data['omni_queue_id'] : null;
+        $this->assertQueueBelongsToTenant($omniQueueId, $tenantId);
 
         SmsTemplate::create([
             'tenant_id'     => $tenantId,
-            'omni_queue_id' => $data['omni_queue_id'] ?? null,
+            'omni_queue_id' => $omniQueueId,
             'name'          => $data['name'],
             'body'          => $data['body'],
             'is_active'     => true,
@@ -88,14 +89,15 @@ class SmsTemplateController extends Controller
                 'required', 'string', 'max:100',
                 Rule::unique('sms_templates', 'name')->where('tenant_id', $tenantId)->ignore($smsTemplate->id),
             ],
-            'omni_queue_id' => 'nullable|exists:omni_queues,id',
+            'omni_queue_id' => 'nullable|integer|exists:omni_queues,id',
             'body'          => 'required|string|max:1600',
         ]);
 
-        $this->assertQueueBelongsToTenant($data['omni_queue_id'] ?? null, $tenantId);
+        $omniQueueId = !empty($data['omni_queue_id']) ? (int) $data['omni_queue_id'] : null;
+        $this->assertQueueBelongsToTenant($omniQueueId, $tenantId);
 
         $smsTemplate->update([
-            'omni_queue_id' => $data['omni_queue_id'] ?? null,
+            'omni_queue_id' => $omniQueueId,
             'name'          => $data['name'],
             'body'          => $data['body'],
         ]);
@@ -137,14 +139,14 @@ class SmsTemplateController extends Controller
         return $tenantId;
     }
 
-    private function assertQueueBelongsToTenant(?int $omniQueueId, int $tenantId): void
+    private function assertQueueBelongsToTenant($omniQueueId, int $tenantId): void
     {
-        if (!$omniQueueId) {
+        if (empty($omniQueueId)) {
             return;
         }
 
         $belongsToSameTenant = OmniQueue::withoutGlobalScopes()
-            ->where('id', $omniQueueId)
+            ->where('id', (int) $omniQueueId)
             ->where('tenant_id', $tenantId)
             ->exists();
 
