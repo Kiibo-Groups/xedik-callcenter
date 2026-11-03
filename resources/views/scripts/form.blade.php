@@ -25,20 +25,22 @@
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
             <span style="font-size:20px;">🤖</span>
             <div style="font-size:13px;color:var(--text-primary);line-height:1.4;">
-                <strong>Sincronización con Voicebot IA:</strong> Al guardar cambios en este guion, el contenido y la frase indicada en <code>SALUDO INICIAL: "..."</code> se sincronizan automáticamente en tiempo real con el Asesor de Voz en ElevenLabs.
+                <strong>Sincronización con Voicebot IA:</strong> Al guardar cambios en este guion, el contenido y la frase indicada en <code>SALUDO INICIAL: "..."</code> se sincronizan automáticamente en tiempo real con el Asesor de Voz en Xedik Voicebot.
             </div>
         </div>
+
+        @if(auth()->user()->isSuperAdmin())
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px;padding-top:12px;border-top:1px dashed rgba(99,102,241,0.3);">
             <div>
-                <label class="form-label" style="font-size:12px;">ElevenLabs Agent ID (Opcional)</label>
+                <label class="form-label" style="font-size:12px;">Voicebot Agent ID (SuperAdmin)</label>
                 <input type="text" name="voicebot_agent_id" class="form-control"
                        value="{{ old('voicebot_agent_id', $script->voicebot_agent_id) }}"
                        placeholder="e.g. agent_2101m5xst5cgf1gv86jxhf2an2nd">
-                <div class="form-hint" style="font-size:11px;">ID del Asesor en ElevenLabs ConvAI vinculado a este guion.</div>
+                <div class="form-hint" style="font-size:11px;">Identificador técnico del Asesor Voicebot vinculado a este guion.</div>
                 @error('voicebot_agent_id')<div style="color:#dc2626;font-size:11px;">{{ $message }}</div>@enderror
             </div>
             <div>
-                <label class="form-label" style="font-size:12px;">ElevenLabs Voice ID (Opcional)</label>
+                <label class="form-label" style="font-size:12px;">Voicebot Voice ID (SuperAdmin)</label>
                 <input type="text" name="voicebot_voice_id" class="form-control"
                        value="{{ old('voicebot_voice_id', $script->voicebot_voice_id) }}"
                        placeholder="e.g. p7sm2zw5Us66lZr2brDW">
@@ -46,6 +48,11 @@
                 @error('voicebot_voice_id')<div style="color:#dc2626;font-size:11px;">{{ $message }}</div>@enderror
             </div>
         </div>
+        @else
+            {{-- Preservar valores asignados por SuperAdmin de forma oculta para no borrarlos --}}
+            <input type="hidden" name="voicebot_agent_id" value="{{ $script->voicebot_agent_id }}">
+            <input type="hidden" name="voicebot_voice_id" value="{{ $script->voicebot_voice_id }}">
+        @endif
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px;padding-top:12px;border-top:1px dashed rgba(99,102,241,0.3);">
             <div>
                 <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;cursor:pointer;">

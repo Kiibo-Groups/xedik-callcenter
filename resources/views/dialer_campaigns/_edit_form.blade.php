@@ -149,15 +149,19 @@
     @error('dial_block_size')<div class="form-hint" style="color:var(--danger);">{{ $message }}</div>@enderror
 </div>
 
+@if($isSuperAdmin ?? auth()->user()->isSuperAdmin())
 <div class="form-group js-power-fields" style="margin-top:14px;">
-    <label class="form-label">Voicebot Agent ID (ElevenLabs ConvAI)</label>
+    <label class="form-label">Voicebot Agent ID (SuperAdmin)</label>
     <input type="text" name="voicebot_agent_id" class="form-control"
            placeholder="e.g. agent_2101m5xst5cgf1gv86jxhf2an2nd"
            value="{{ old('voicebot_agent_id', $dc->voicebot_agent_id) }}"
            {{ $dc->isRunning() ? 'disabled' : '' }}>
-    <div class="form-hint">ID del Asesor en ElevenLabs para llamadas automáticas IA. Si se deja vacío, se tomará del guion de la campaña.</div>
+    <div class="form-hint">ID técnico del Asesor Voicebot para llamadas automáticas IA. Si se deja vacío, se tomará del guion de la campaña.</div>
     @error('voicebot_agent_id')<div class="form-hint" style="color:var(--danger);">{{ $message }}</div>@enderror
 </div>
+@else
+    <input type="hidden" name="voicebot_agent_id" value="{{ $dc->voicebot_agent_id }}">
+@endif
 
 <div style="margin-top:1.25rem;padding-top:1rem;border-top:1px dashed var(--border-color, #e2e8f0);">
     <div style="font-weight:600;font-size:13px;margin-bottom:8px;display:flex;align-items:center;gap:6px;color:var(--text-primary, #0f172a);">
