@@ -90,6 +90,19 @@ class PublicController extends Controller
 
     public function start(Request $request, string $publicToken)
     {
+        // Soporte para JSON body directo si no fue parseado automáticamente
+        if ($request->isJson() && empty($request->all())) {
+            $json = json_decode($request->getContent(), true);
+            if (is_array($json)) {
+                $request->merge($json);
+            }
+        } elseif (empty($request->all())) {
+            $json = json_decode($request->getContent(), true);
+            if (is_array($json)) {
+                $request->merge($json);
+            }
+        }
+
         $config = WebchatConfig::withoutGlobalScope(TenantScope::class)
             ->where('public_token', $publicToken)
             ->where('is_active', true)
