@@ -90,17 +90,19 @@ class PublicController extends Controller
 
     public function start(Request $request, string $publicToken)
     {
-        // Soporte para JSON body directo si no fue parseado automáticamente
-        if ($request->isJson() && empty($request->all())) {
-            $json = json_decode($request->getContent(), true);
-            if (is_array($json)) {
-                $request->merge($json);
+        // Obtener datos del request JSON, form-data o raw body
+        $raw = $request->json()->all();
+        if (empty($raw)) {
+            $raw = $request->all();
+        }
+        if (empty($raw)) {
+            $decoded = json_decode($request->getContent(), true);
+            if (is_array($decoded)) {
+                $raw = $decoded;
             }
-        } elseif (empty($request->all())) {
-            $json = json_decode($request->getContent(), true);
-            if (is_array($json)) {
-                $request->merge($json);
-            }
+        }
+        if (!empty($raw)) {
+            $request->merge($raw);
         }
 
         $config = WebchatConfig::withoutGlobalScope(TenantScope::class)
@@ -115,13 +117,22 @@ class PublicController extends Controller
             return response()->json(['ok' => true])->withHeaders($this->corsHeaders());
         }
 
-        $request->validate([
-            'name'     => 'required|string|max:100',
-            'phone'    => 'required|string|max:30',
-            'email'    => 'required|email|max:150',
-            'interest' => 'nullable|string|max:100',
-            'page_url' => 'nullable|string|max:500',
-        ]);
+        $name     = trim((string)($request->input('name') ?? $raw['name'] ?? ''));
+        $phone    = trim((string)($request->input('phone') ?? $raw['phone'] ?? ''));
+        $email    = trim((string)($request->input('email') ?? $raw['email'] ?? ''));
+        $interest = $request->input('interest') ?? $raw['interest'] ?? null;
+        $pageUrl  = $request->input('page_url') ?? $raw['page_url'] ?? null;
+
+        if (empty($name) || empty($phone) || empty($email)) {
+            return response()->json([
+                'message' => 'Por favor completa todos los campos obligatorios.',
+                'errors'  => [
+                    'name'  => empty($name) ? ['El nombre es obligatorio'] : [],
+                    'phone' => empty($phone) ? ['El teléfono es obligatorio'] : [],
+                    'email' => empty($email) ? ['El correo es obligatorio'] : [],
+                ]
+            ], 422)->withHeaders($this->corsHeaders());
+        }
 
         $isOnline = BusinessHoursHelper::isOnline(
             $config->business_hours ?? [],
