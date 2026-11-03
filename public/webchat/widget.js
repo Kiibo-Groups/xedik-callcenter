@@ -368,10 +368,17 @@
         try {
             const r = await fetch(`${API_BASE}/api/webchat/${TOKEN}/start`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
                 body: JSON.stringify({ name, phone, email, interest, website: honeypot, page_url: window.location.href }),
             });
             const data = await r.json();
+            if (!r.ok) {
+                const msg = data.message || (data.errors ? Object.values(data.errors).flat().join(' ') : 'Error al conectar');
+                throw new Error(msg);
+            }
             sessionToken = data.session_token;
             localStorage.setItem('xedik_wc_session_' + TOKEN, sessionToken);
 
@@ -382,10 +389,10 @@
             } else {
                 openOfflineInfo();
             }
-        } catch {
+        } catch (err) {
             btn.disabled = false;
             btn.textContent = 'Start chat';
-            errorEl.textContent = 'Connection error. Please try again.';
+            errorEl.textContent = err.message || 'Connection error. Please try again.';
             errorEl.style.display = 'block';
         }
     }
