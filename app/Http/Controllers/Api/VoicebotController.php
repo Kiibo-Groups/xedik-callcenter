@@ -100,12 +100,25 @@ class VoicebotController extends Controller
             }
         }
 
-        // 3. Detección dinámica de Cita / Visita si el transcript lo menciona
+        // 3. Detección dinámica de Cita / Visita solo si el bot confirmó explícitamente una cita (sin signo de interrogación)
         if (!$isScheduled && !empty($transcript)) {
-            $lower = mb_strtolower($transcript);
-            $scheduleWords = ['agend', 'cita', 'visita', 'viernes', 'lunes', 'martes', 'miércoles', 'miercoles', 'jueves', 'sábado', 'sabado', 'demostración', 'demostracion'];
-            foreach ($scheduleWords as $w) {
-                if (str_contains($lower, $w)) {
+            $lines = array_filter(array_map('trim', explode("\n", $transcript)));
+            $closingLines = array_slice($lines, -5);
+            $botAffirmations = [];
+            foreach ($closingLines as $line) {
+                if (!str_contains($line, '?') && !str_starts_with($line, 'Customer:') && !str_starts_with($line, 'Cliente:')) {
+                    $botAffirmations[] = mb_strtolower($line);
+                }
+            }
+            $affirmationText = implode(' ', $botAffirmations);
+            $explicitConfirmPhrases = [
+                'queda agendad', 'quedó agendad', 'quedo agendad',
+                'cita agendada', 'cita confirmada', 'confirmamos tu cita', 'confirmo tu cita', 'confirmamos su cita',
+                'te agendé', 'te agende', 'le agendé', 'le agende', 'ya te agendé', 'ya le agendé', 'ya quedó tu cita', 'ya quedo su cita',
+                'visita agendada', 'demostración agendada', 'demostracion agendada',
+            ];
+            foreach ($explicitConfirmPhrases as $phrase) {
+                if (str_contains($affirmationText, $phrase)) {
                     $isScheduled = true;
                     break;
                 }
