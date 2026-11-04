@@ -415,6 +415,18 @@ Route::middleware('auth')->group(function () {
     Route::get('/dialer-report',            [DialerReportController::class, 'index'])->name('dialer-report.index');
     Route::get('/dialer-report/export',     [DialerReportController::class, 'export'])->name('dialer-report.export');
 
+    // Marketing Campaigns (Email / SMS / WhatsApp)
+    Route::get('/marketing-campaigns',                                      [\App\Http\Controllers\Admin\MarketingCampaignController::class, 'index'])->name('marketing-campaigns.index');
+    Route::post('/marketing-campaigns',                                     [\App\Http\Controllers\Admin\MarketingCampaignController::class, 'store'])->name('marketing-campaigns.store');
+    Route::get('/marketing-campaigns/{marketingCampaign}/edit',             [\App\Http\Controllers\Admin\MarketingCampaignController::class, 'edit'])->name('marketing-campaigns.edit');
+    Route::put('/marketing-campaigns/{marketingCampaign}',                  [\App\Http\Controllers\Admin\MarketingCampaignController::class, 'update'])->name('marketing-campaigns.update');
+    Route::delete('/marketing-campaigns/{marketingCampaign}',               [\App\Http\Controllers\Admin\MarketingCampaignController::class, 'destroy'])->name('marketing-campaigns.destroy');
+    Route::post('/marketing-campaigns/{marketingCampaign}/play',            [\App\Http\Controllers\Admin\MarketingCampaignController::class, 'play'])->name('marketing-campaigns.play');
+    Route::post('/marketing-campaigns/{marketingCampaign}/pause',           [\App\Http\Controllers\Admin\MarketingCampaignController::class, 'pause'])->name('marketing-campaigns.pause');
+    Route::post('/marketing-campaigns/{marketingCampaign}/stop',            [\App\Http\Controllers\Admin\MarketingCampaignController::class, 'stop'])->name('marketing-campaigns.stop');
+    Route::post('/marketing-campaigns/{marketingCampaign}/reset',           [\App\Http\Controllers\Admin\MarketingCampaignController::class, 'reset'])->name('marketing-campaigns.reset');
+    Route::post('/marketing-campaigns/{marketingCampaign}/refresh-stats',   [\App\Http\Controllers\Admin\MarketingCampaignController::class, 'refreshStats'])->name('marketing-campaigns.refresh-stats');
+
     Route::get('/dialer-dnc',               [DialerDncController::class, 'index'])->name('dialer-dnc.index');
     Route::post('/dialer-dnc',              [DialerDncController::class, 'store'])->name('dialer-dnc.store');
     Route::delete('/dialer-dnc/{dialerDnc}',[DialerDncController::class, 'destroy'])->name('dialer-dnc.destroy');

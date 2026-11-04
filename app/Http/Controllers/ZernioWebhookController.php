@@ -247,6 +247,23 @@ class ZernioWebhookController extends Controller
             ->value('ai_bot_active');
 
         if ((bool) $aiBotActive) {
+            $recentMessages = Message::withoutGlobalScopes()
+                ->where('conversation_id', $conversation->id)
+                ->orderByDesc('id')
+                ->limit(8)
+                ->get()
+                ->reverse()
+                ->values();
+
+            $hasAssistantReply = $recentMessages->contains(fn ($m) => $m->sender_type !== 'customer');
+
+            $historyText = $recentMessages
+                ->map(function ($m) {
+                    $role = $m->sender_type === 'customer' ? 'Cliente' : 'Asesor';
+                    return "{$role}: " . trim((string) $m->content);
+                })
+                ->implode("\n");
+
             $this->automationForwardingService->forwardInboundMessage($account->tenant_id, $channel, [
                 'event'                => "{$channel}.inbound_message",
                 'tenant_id'            => $account->tenant_id,
@@ -260,6 +277,8 @@ class ZernioWebhookController extends Controller
                 'contact_name'         => $participantName,
                 'message_type'         => $firstAttachmentType ?? 'text',
                 'text'                 => $bodyText,
+                'is_first_message'     => ! $hasAssistantReply,
+                'history'              => $historyText,
                 'received_at'          => $sentAt->toIso8601String(),
                 'source'               => 'crm.xedik.cloud',
                 'raw'                  => $msg,

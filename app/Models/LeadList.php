@@ -22,10 +22,18 @@ class LeadList extends Model
         return $this->hasMany(DialerCampaign::class, 'lead_list_id');
     }
 
+    public function marketingCampaigns(): HasMany
+    {
+        return $this->hasMany(MarketingCampaign::class, 'lead_list_id');
+    }
+
     public function hasActiveCampaigns(): bool
     {
         return $this->dialerCampaigns()
             ->whereIn('status', ['running', 'paused'])
-            ->exists();
+            ->exists()
+            || $this->marketingCampaigns()
+                ->whereIn('status', ['running', 'paused'])
+                ->exists();
     }
 }
