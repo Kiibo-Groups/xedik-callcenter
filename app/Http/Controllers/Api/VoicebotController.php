@@ -65,7 +65,7 @@ class VoicebotController extends Controller
 
         $tenantId = $lead?->tenant_id
             ?? $dialerCampaign?->tenant_id
-            ?? 2;
+            ?? ($agentIdParam === 'agent_2101m5xst5cgf1gv86jxhf2an2nd' ? 5 : 2);
 
         $assignedTo = $lead?->assigned_to
             ?? ($tenantId === 5 ? 18 : 10); // 18: Miguel Angel (FOU), 10: Agente (Xedik)

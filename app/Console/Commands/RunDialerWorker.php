@@ -138,13 +138,26 @@ class RunDialerWorker extends Command
                     continue;
                 }
 
-                // Execute Asterisk originate
-                // Originates Local/{dialExten}@xedik_outbound/n to connect to {agentId}*{leadId}*{campaignId}*{dialExten}@xedik_voicebot_outbound
+                // Resolve outbound Caller ID for this campaign/tenant
+                $campaignCallerId = preg_replace('/[^\d]/', '', (string) ($campaign->caller_id ?? ''));
+                if (strlen($campaignCallerId) < 10) {
+                    $campaignCallerId = DB::table('voice_caller_ids')
+                        ->where('tenant_id', $campaign->tenant_id)
+                        ->where('is_active', 1)
+                        ->value('number');
+                }
+                if (empty($campaignCallerId)) {
+                    $campaignCallerId = ((int) $campaign->tenant_id === 5) ? '8135470665' : '8122140136';
+                }
+
+                // Execute Asterisk originate with dynamic Caller ID
+                // Originates Local/{dialExten}*{callerId}@xedik_campaign_outbound/n to connect to {agentId}*{leadId}*{campaignId}*{dialExten}@xedik_voicebot_outbound
                 // Note: /n prevents local channel optimization so WebRTC DTLS-SRTP and audio translation remain intact
+                $originateExten = sprintf('%s*%s', $dialExten, $campaignCallerId);
                 $targetParam = sprintf('%s*%s*%s*%s', $agentId, (int)$item->dialer_lead_id, (int)$campaignId, $dialExten);
                 $cmd = sprintf(
-                    'asterisk -rx "channel originate Local/%s@xedik_outbound/n extension %s@xedik_voicebot_outbound"',
-                    escapeshellcmd($dialExten),
+                    'asterisk -rx "channel originate Local/%s@xedik_campaign_outbound/n extension %s@xedik_voicebot_outbound"',
+                    escapeshellcmd($originateExten),
                     escapeshellcmd($targetParam)
                 );
 
