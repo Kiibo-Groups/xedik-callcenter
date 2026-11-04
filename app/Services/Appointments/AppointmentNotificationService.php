@@ -327,25 +327,19 @@ class AppointmentNotificationService
     }
 
     /**
-     * Resolver cuenta de WhatsApp activa (primero de tenant, luego fallback).
+     * Resolver cuenta de WhatsApp activa estrictamente del tenant correspondiente.
+     * Nunca usar la cuenta de WhatsApp de otro tenant.
      */
     private function resolveWhatsappAccount(?int $tenantId): ?WhatsappAccount
     {
-        $account = null;
-        if ($tenantId) {
-            $account = WhatsappAccount::withoutGlobalScopes()
-                ->where('tenant_id', $tenantId)
-                ->where('is_active', true)
-                ->first();
+        if (!$tenantId) {
+            return null;
         }
 
-        if (!$account) {
-            $account = WhatsappAccount::withoutGlobalScopes()
-                ->where('is_active', true)
-                ->first();
-        }
-
-        return $account;
+        return WhatsappAccount::withoutGlobalScopes()
+            ->where('tenant_id', $tenantId)
+            ->where('is_active', true)
+            ->first();
     }
 
     /**
