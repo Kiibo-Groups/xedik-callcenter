@@ -297,6 +297,50 @@ class WhatsappWebhookController extends Controller
             ->value('ai_bot_active');
 
         if ((bool) $aiBotActive) {
+            // Marcar como leído (✓✓ azul) y mostrar indicador "escribiendo..." en WhatsApp mientras la IA piensa
+            if (!empty($wamid) && !empty($account->access_token) && !empty($account->phone_number_id)) {
+                try {
+                    $apiBase = env('WHATSAPP_API_BASE_URL', 'https://graph.facebook.com/v22.0');
+                    $typingResp = Http::withToken($account->access_token)
+                        ->timeout(2)
+                        ->post("{$apiBase}/{$account->phone_number_id}/messages", [
+                            'messaging_product' => 'whatsapp',
+                            'status'            => 'read',
+                            'message_id'        => $wamid,
+                            'typing_indicator'  => [
+                                'type' => 'text',
+                            ],
+                        ]);
+
+                    if ($typingResp->failed()) {
+                        Http::withToken($account->access_token)
+                            ->timeout(2)
+                            ->post("{$apiBase}/{$account->phone_number_id}/messages", [
+                                'messaging_product' => 'whatsapp',
+                                'status'            => 'read',
+                                'message_id'        => $wamid,
+                            ]);
+                    }
+                } catch (\Throwable $e) {
+                    Log::debug('WhatsApp typing indicator skipped: ' . $e->getMessage());
+                }
+            }
+
+            $recentMessages = Message::withoutGlobalScopes()
+                ->where('conversation_id', $conversation->id)
+                ->where('id', '<', $message->id)
+                ->orderBy('id', 'desc')
+                ->limit(8)
+                ->get()
+                ->reverse();
+
+            $historyLines = [];
+            foreach ($recentMessages as $rm) {
+                $roleLabel = $rm->direction === 'inbound' ? 'Cliente' : 'Ricardo (Tú)';
+                $historyLines[] = "{$roleLabel}: " . trim((string) $rm->body_text);
+            }
+            $historyText = implode("\n", $historyLines);
+
             $this->automationForwardingService->forwardInboundMessage($account->tenant_id, 'whatsapp', [
                 'event'                => 'whatsapp.inbound_message',
                 'tenant_id'            => $account->tenant_id,
@@ -310,6 +354,8 @@ class WhatsappWebhookController extends Controller
                 'contact_name'         => $contactName,
                 'message_type'         => $type,
                 'text'                 => $bodyText,
+                'is_first_message'     => empty($historyLines),
+                'history'              => $historyText,
                 'received_at'          => $sentAt->toIso8601String(),
                 'source'               => 'crm.xedik.cloud',
                 'raw'                  => $msgData,

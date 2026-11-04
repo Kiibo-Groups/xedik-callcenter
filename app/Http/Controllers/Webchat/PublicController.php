@@ -286,6 +286,21 @@ class PublicController extends Controller
                 ->value('ai_bot_active');
 
             if ((bool) $aiBotActive) {
+                $recentMessages = Message::withoutGlobalScopes()
+                    ->where('conversation_id', $conv->id)
+                    ->where('id', '<', $msg->id)
+                    ->orderBy('id', 'desc')
+                    ->limit(8)
+                    ->get()
+                    ->reverse();
+
+                $historyLines = [];
+                foreach ($recentMessages as $rm) {
+                    $roleLabel = $rm->direction === 'inbound' ? 'Cliente' : 'Asesor (Tú)';
+                    $historyLines[] = "{$roleLabel}: " . trim((string) $rm->body_text);
+                }
+                $historyText = implode("\n", $historyLines);
+
                 $this->automationForwardingService->forwardInboundMessage($session->tenant_id, 'chat', [
                     'event'                => 'chat.inbound_message',
                     'tenant_id'            => $session->tenant_id,
@@ -299,6 +314,8 @@ class PublicController extends Controller
                     'contact_name'         => $session->name,
                     'message_type'         => 'text',
                     'text'                 => $bodyText,
+                    'is_first_message'     => empty($historyLines),
+                    'history'              => $historyText,
                     'received_at'          => $msg->sent_at->toIso8601String(),
                     'source'               => config('app.url'),
                     'raw'                  => [
