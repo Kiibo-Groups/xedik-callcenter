@@ -73,8 +73,10 @@ class AuthController extends Controller
 
             $request->session()->regenerate();
 
-            app(\App\Services\AgentStatusService::class)
-                ->changeStatus(Auth::user(), 'offline');
+            if (Auth::user()->tenant_id !== null) {
+                app(\App\Services\AgentStatusService::class)
+                    ->changeStatus(Auth::user(), 'offline');
+            }
 
             $intended     = $request->session()->pull('url.intended', '/');
             $intendedPath = parse_url($intended, PHP_URL_PATH) ?? '/';
@@ -114,10 +116,12 @@ class AuthController extends Controller
         if (Auth::check()) {
             $user = Auth::user();
 
-            app(\App\Services\AgentStatusService::class)
-                ->changeStatus($user, 'offline');
+            if ($user->tenant_id !== null) {
+                app(\App\Services\AgentStatusService::class)
+                    ->changeStatus($user, 'offline');
 
-            $this->revokeActiveVoiceSessions($user);
+                $this->revokeActiveVoiceSessions($user);
+            }
         }
 
         Auth::logout();

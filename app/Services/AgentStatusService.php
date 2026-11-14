@@ -24,6 +24,15 @@ class AgentStatusService
 
     public function changeStatus(User $user, string $status, ?int $pauseReasonId = null, ?string $browserTabId = null, string $source = 'change_status'): AgentSession
     {
+        if ($user->tenant_id === null) {
+            return new AgentSession([
+                'user_id'      => $user->id,
+                'status'       => $status,
+                'status_since' => now(),
+                'last_ping_at' => now(),
+            ]);
+        }
+
         return $this->withUserAvailabilityLock($user, function () use ($user, $status, $pauseReasonId, $browserTabId, $source): AgentSession {
             if ($status !== 'ready') {
                 $this->queueMemberAvailability->pauseExistingMembershipsForUser($user, $status);
