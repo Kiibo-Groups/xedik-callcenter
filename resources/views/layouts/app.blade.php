@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <link rel="shortcut icon" href="{{ asset('images/xedik-logo.svg') }}" type="image/x-icon">
+    <link rel="icon" type="image/svg+xml" href="{{ asset('images/xedik-logo.svg') }}?v=20261114">
+    <link rel="icon" type="image/png" sizes="64x64" href="{{ asset('favicon.png') }}?v=20261114">
+    <link rel="shortcut icon" href="{{ asset('favicon.ico') }}?v=20261114">
     <title>@yield('title', 'Dashboard') — XEDIK Contact Suite</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

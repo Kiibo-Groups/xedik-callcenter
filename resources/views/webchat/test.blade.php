@@ -10,6 +10,9 @@
                    style-src 'self' 'unsafe-inline';
                    img-src 'self' data:;">
     <title>Webchat Preview — {{ $config->window_title }}</title>
+    <link rel="icon" type="image/svg+xml" href="{{ asset('images/xedik-logo.svg') }}?v=20261114">
+    <link rel="icon" type="image/png" sizes="64x64" href="{{ asset('favicon.png') }}?v=20261114">
+    <link rel="shortcut icon" href="{{ asset('favicon.ico') }}?v=20261114">
     <style>
         * { box-sizing: border-box; }
         body { font-family: system-ui, sans-serif; margin: 0; padding: 40px; background: #f5f5f5; color: #333; }

@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href="{{ asset('images/xedik-logo.svg') }}?v=20261114">
+    <link rel="icon" type="image/png" sizes="64x64" href="{{ asset('favicon.png') }}?v=20261114">
+    <link rel="shortcut icon" href="{{ asset('favicon.ico') }}?v=20261114">
     <title>Login — XEDIK Contact Suite</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

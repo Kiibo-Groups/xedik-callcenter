@@ -54,8 +54,8 @@ class RunDialerWorker extends Command
             try {
                 $marketingService = app(\App\Services\Marketing\MarketingCampaignService::class);
                 $marketingService->processScheduledCampaigns();
-                $marketingService->checkDailyWindowsAndAutoPause();
                 $marketingService->processRunningCampaigns();
+                $marketingService->checkDailyWindowsAndAutoPause();
             } catch (\Throwable $e) {
                 Log::warning('Marketing campaign worker tick failed', ['error' => $e->getMessage()]);
             }

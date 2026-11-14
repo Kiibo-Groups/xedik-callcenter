@@ -21,8 +21,8 @@ class RunMarketingWorker extends Command
         while (true) {
             try {
                 $service->processScheduledCampaigns();
-                $service->checkDailyWindowsAndAutoPause();
                 $service->processRunningCampaigns();
+                $service->checkDailyWindowsAndAutoPause();
             } catch (\Throwable $e) {
                 $this->error('Marketing worker error: ' . $e->getMessage());
                 Log::error('Marketing worker exception', [

@@ -27,25 +27,42 @@ class TenantController extends Controller
         abort_unless(auth()->user()->isSuperAdmin(), 403);
 
         $validated = $request->validate([
-            'name' => 'required|string|max:100',
-            'slug' => ['required', 'string', 'max:100', 'unique:tenants,slug', 'regex:/^[a-z0-9\-]+$/'],
-            'permission_ids'   => 'nullable|array',
-            'permission_ids.*' => 'integer|exists:permissions,id',
+            'name'                   => 'required|string|max:100',
+            'slug'                   => ['required', 'string', 'max:100', 'unique:tenants,slug', 'regex:/^[a-z0-9\-]+$/'],
+            'business_type'          => ['nullable', 'string', Rule::in(['call_center', 'restaurant'])],
+            'kitchen_whatsapp_phone' => ['nullable', 'string', 'max:30'],
+            'delivery_fee'           => ['nullable', 'string', 'max:30'],
+            'estimated_time'         => ['nullable', 'string', 'max:50'],
+            'permission_ids'         => 'nullable|array',
+            'permission_ids.*'       => 'integer|exists:permissions,id',
         ]);
+
+        $businessType = $validated['business_type'] ?? 'call_center';
+        $settings = [
+            'business_type'          => $businessType,
+            'kitchen_whatsapp_phone' => trim((string) ($validated['kitchen_whatsapp_phone'] ?? '')),
+            'delivery_fee'           => trim((string) ($validated['delivery_fee'] ?? '')),
+            'estimated_time'         => trim((string) ($validated['estimated_time'] ?? '')),
+        ];
 
         $tenant = Tenant::create([
             'name'      => $validated['name'],
             'slug'      => $validated['slug'],
             'is_active' => true,
+            'settings'  => $settings,
         ]);
 
         $grantedPermissionIds = collect($validated['permission_ids'] ?? []);
 
         $this->seedTenantEntitlements($tenant->id, $grantedPermissionIds);
         $this->seedDefaultRoles($tenant->id, $grantedPermissionIds);
-        $this->seedDefaultStatuses($tenant->id);
+        $this->seedDefaultStatuses($tenant->id, $businessType);
         $this->seedDefaultSources($tenant->id);
         $this->seedVoiceSettings($tenant->id);
+
+        if ($businessType === 'restaurant') {
+            $this->seedRestaurantDefaults($tenant);
+        }
 
         return back()->with('success', 'Tenant created successfully.');
     }
@@ -152,17 +169,25 @@ class TenantController extends Controller
     /**
      * Crea los lead statuses default para un tenant nuevo.
      */
-    private function seedDefaultStatuses(int $tenantId): void
+    private function seedDefaultStatuses(int $tenantId, string $businessType = 'call_center'): void
     {
-        $statuses = [
-            ['name' => 'New',         'slug' => 'new',         'color' => '#0891b2', 'bg_color' => '#cffafe', 'order' => 1, 'is_default' => true,  'is_active' => true],
-            ['name' => 'Contacted',   'slug' => 'contacted',   'color' => '#4f46e5', 'bg_color' => '#e0e7ff', 'order' => 2, 'is_default' => false, 'is_active' => true],
-            ['name' => 'Qualified',   'slug' => 'qualified',   'color' => '#b45309', 'bg_color' => '#fef9c3', 'order' => 3, 'is_default' => false, 'is_active' => true],
-            ['name' => 'Proposal',    'slug' => 'proposal',    'color' => '#15803d', 'bg_color' => '#dcfce7', 'order' => 4, 'is_default' => false, 'is_active' => true],
-            ['name' => 'Negotiation', 'slug' => 'negotiation', 'color' => '#e2e8f0', 'bg_color' => '#1e293b', 'order' => 5, 'is_default' => false, 'is_active' => true],
-            ['name' => 'Closed Won',  'slug' => 'closed_won',  'color' => '#16a34a', 'bg_color' => '#dcfce7', 'order' => 6, 'is_default' => false, 'is_active' => true],
-            ['name' => 'Closed Lost', 'slug' => 'closed_lost', 'color' => '#dc2626', 'bg_color' => '#fee2e2', 'order' => 7, 'is_default' => false, 'is_active' => true],
-        ];
+        $statuses = $businessType === 'restaurant'
+            ? [
+                ['name' => 'Nuevo Pedido',    'slug' => 'new',            'color' => '#0891b2', 'bg_color' => '#cffafe', 'order' => 1, 'is_default' => true,  'is_active' => true],
+                ['name' => 'En Preparación',  'slug' => 'in_preparation', 'color' => '#b45309', 'bg_color' => '#fef9c3', 'order' => 2, 'is_default' => false, 'is_active' => true],
+                ['name' => 'En Reparto',      'slug' => 'out_delivery',   'color' => '#4f46e5', 'bg_color' => '#e0e7ff', 'order' => 3, 'is_default' => false, 'is_active' => true],
+                ['name' => 'Entregado',       'slug' => 'delivered',      'color' => '#16a34a', 'bg_color' => '#dcfce7', 'order' => 4, 'is_default' => false, 'is_active' => true],
+                ['name' => 'Cancelado',       'slug' => 'cancelled',      'color' => '#dc2626', 'bg_color' => '#fee2e2', 'order' => 5, 'is_default' => false, 'is_active' => true],
+            ]
+            : [
+                ['name' => 'New',         'slug' => 'new',         'color' => '#0891b2', 'bg_color' => '#cffafe', 'order' => 1, 'is_default' => true,  'is_active' => true],
+                ['name' => 'Contacted',   'slug' => 'contacted',   'color' => '#4f46e5', 'bg_color' => '#e0e7ff', 'order' => 2, 'is_default' => false, 'is_active' => true],
+                ['name' => 'Qualified',   'slug' => 'qualified',   'color' => '#b45309', 'bg_color' => '#fef9c3', 'order' => 3, 'is_default' => false, 'is_active' => true],
+                ['name' => 'Proposal',    'slug' => 'proposal',    'color' => '#15803d', 'bg_color' => '#dcfce7', 'order' => 4, 'is_default' => false, 'is_active' => true],
+                ['name' => 'Negotiation', 'slug' => 'negotiation', 'color' => '#e2e8f0', 'bg_color' => '#1e293b', 'order' => 5, 'is_default' => false, 'is_active' => true],
+                ['name' => 'Closed Won',  'slug' => 'closed_won',  'color' => '#16a34a', 'bg_color' => '#dcfce7', 'order' => 6, 'is_default' => false, 'is_active' => true],
+                ['name' => 'Closed Lost', 'slug' => 'closed_lost', 'color' => '#dc2626', 'bg_color' => '#fee2e2', 'order' => 7, 'is_default' => false, 'is_active' => true],
+            ];
 
         foreach ($statuses as $data) {
             \App\Models\LeadStatus::withoutGlobalScopes()->firstOrCreate(
@@ -170,6 +195,33 @@ class TenantController extends Controller
                 array_merge($data, ['tenant_id' => $tenantId])
             );
         }
+    }
+
+    private function seedRestaurantDefaults(Tenant $tenant): void
+    {
+        $campaign = \App\Models\Campaign::withoutGlobalScopes()->firstOrCreate(
+            ['tenant_id' => $tenant->id, 'slug' => 'pedidos_' . str_replace('-', '_', $tenant->slug)],
+            [
+                'tenant_id'   => $tenant->id,
+                'name'        => 'Pedidos ' . $tenant->name,
+                'color'       => '#ea580c',
+                'bg_color'    => '#ffedd5',
+                'description' => 'Recepción de pedidos por WhatsApp, Redes Sociales y Teléfono con IA',
+                'is_active'   => true,
+                'is_default'  => true,
+            ]
+        );
+
+        \App\Models\OmniQueue::withoutGlobalScopes()->firstOrCreate(
+            ['tenant_id' => $tenant->id, 'name' => 'Cola Pedidos ' . $tenant->name],
+            [
+                'tenant_id'   => $tenant->id,
+                'campaign_id' => $campaign->id,
+                'name'        => 'Cola Pedidos ' . $tenant->name,
+                'description' => 'Bandeja principal de atención y pedidos',
+                'active'      => true,
+            ]
+        );
     }
 
     /**
@@ -217,16 +269,31 @@ class TenantController extends Controller
         abort_unless(auth()->user()->isSuperAdmin(), 403);
 
         $validated = $request->validate([
-            'name'      => 'required|string|max:100',
-            'slug'      => ['required', 'string', 'max:100', 'regex:/^[a-z0-9\-]+$/', Rule::unique('tenants', 'slug')->ignore($tenant->id)],
-            'is_active' => 'boolean',
+            'name'                   => 'required|string|max:100',
+            'slug'                   => ['required', 'string', 'max:100', 'regex:/^[a-z0-9\-]+$/', Rule::unique('tenants', 'slug')->ignore($tenant->id)],
+            'business_type'          => ['nullable', 'string', Rule::in(['call_center', 'restaurant'])],
+            'kitchen_whatsapp_phone' => ['nullable', 'string', 'max:30'],
+            'delivery_fee'           => ['nullable', 'string', 'max:30'],
+            'estimated_time'         => ['nullable', 'string', 'max:50'],
+            'is_active'              => 'boolean',
         ]);
+
+        $settings = is_array($tenant->settings) ? $tenant->settings : [];
+        $settings['business_type']          = $validated['business_type'] ?? ($settings['business_type'] ?? 'call_center');
+        $settings['kitchen_whatsapp_phone'] = trim((string) ($validated['kitchen_whatsapp_phone'] ?? ($settings['kitchen_whatsapp_phone'] ?? '')));
+        $settings['delivery_fee']           = trim((string) ($validated['delivery_fee'] ?? ($settings['delivery_fee'] ?? '')));
+        $settings['estimated_time']         = trim((string) ($validated['estimated_time'] ?? ($settings['estimated_time'] ?? '')));
 
         $tenant->update([
             'name'      => $validated['name'],
             'slug'      => $validated['slug'],
             'is_active' => $request->boolean('is_active', false),
+            'settings'  => $settings,
         ]);
+
+        if ($settings['business_type'] === 'restaurant') {
+            $this->seedRestaurantDefaults($tenant);
+        }
 
         return back()->with('success', 'Tenant updated successfully.');
     }

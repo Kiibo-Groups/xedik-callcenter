@@ -87,4 +87,32 @@ class Tenant extends Model
     {
         return $this->enabledPermissions()->where('name', $permissionName)->exists();
     }
+
+    public function businessType(): string
+    {
+        return (string) ($this->settings['business_type'] ?? 'call_center');
+    }
+
+    public function isRestaurant(): bool
+    {
+        return $this->businessType() === 'restaurant';
+    }
+
+    public function kitchenWhatsappPhone(): ?string
+    {
+        $val = $this->settings['kitchen_whatsapp_phone'] ?? null;
+        return ($val !== null && $val !== '') ? (string) $val : null;
+    }
+
+    public function deliveryFee(): ?string
+    {
+        $val = $this->settings['delivery_fee'] ?? null;
+        return ($val !== null && $val !== '') ? (string) $val : null;
+    }
+
+    public function estimatedDeliveryTime(): ?string
+    {
+        $val = $this->settings['estimated_time'] ?? null;
+        return ($val !== null && $val !== '') ? (string) $val : null;
+    }
 }

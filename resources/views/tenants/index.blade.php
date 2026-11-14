@@ -23,6 +23,10 @@
         <div><div class="stat-label">Active</div><div class="stat-value">{{ $tenants->where('is_active', true)->count() }}</div></div>
     </div>
     <div class="stat-card">
+        <div class="stat-icon yellow"><i class="bi bi-shop"></i></div>
+        <div><div class="stat-label">Restaurantes / Pedidos</div><div class="stat-value">{{ $tenants->filter(fn($t) => $t->isRestaurant())->count() }}</div></div>
+    </div>
+    <div class="stat-card">
         <div class="stat-icon purple"><i class="bi bi-people-fill"></i></div>
         <div><div class="stat-label">Total Users</div><div class="stat-value">{{ $tenants->sum('users_count') }}</div></div>
     </div>
@@ -39,6 +43,7 @@
                 <tr>
                     <th>Tenant</th>
                     <th>Slug</th>
+                    <th>Tipo de Giro</th>
                     <th>Status</th>
                     <th>Users</th>
                     <th>Created</th>
@@ -50,6 +55,22 @@
                 <tr>
                     <td><span class="cell-strong">{{ $tenant->name }}</span></td>
                     <td><code class="cell-code">{{ $tenant->slug }}</code></td>
+                    <td>
+                        @if($tenant->isRestaurant())
+                            <span class="badge" style="background:#ffedd5;color:#c2410c;display:inline-flex;align-items:center;gap:5px;">
+                                <i class="bi bi-shop"></i> Restaurante / Pedidos
+                            </span>
+                            @if($tenant->kitchenWhatsappPhone())
+                                <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">
+                                    <i class="bi bi-whatsapp" style="color:#16a34a;"></i> Cocina: <code>{{ $tenant->kitchenWhatsappPhone() }}</code>
+                                </div>
+                            @endif
+                        @else
+                            <span class="badge" style="background:#e0e7ff;color:#4338ca;display:inline-flex;align-items:center;gap:5px;">
+                                <i class="bi bi-headset"></i> Call Center / B2B
+                            </span>
+                        @endif
+                    </td>
                     <td>
                         <span class="badge {{ $tenant->is_active ? 'badge-success' : 'badge-danger' }}">
                             <i class="bi {{ $tenant->is_active ? 'bi-check-circle-fill' : 'bi-x-circle-fill' }} badge-icon"></i>
@@ -64,6 +85,10 @@
                                 data-id="{{ $tenant->id }}"
                                 data-name="{{ $tenant->name }}"
                                 data-slug="{{ $tenant->slug }}"
+                                data-business-type="{{ $tenant->businessType() }}"
+                                data-kitchen-phone="{{ $tenant->kitchenWhatsappPhone() ?? '' }}"
+                                data-delivery-fee="{{ $tenant->deliveryFee() ?? '' }}"
+                                data-estimated-time="{{ $tenant->estimatedDeliveryTime() ?? '' }}"
                                 data-is-active="{{ $tenant->is_active ? '1' : '0' }}"
                                 data-users-count="{{ $tenant->users_count }}">
                                 <i class="bi bi-pencil"></i> Edit
@@ -89,7 +114,7 @@
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted)">
+                    <td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">
                         <i class="bi bi-building" style="font-size:24px;display:block;margin-bottom:8px"></i>
                         No tenants yet. Create your first tenant.
                     </td>
@@ -102,29 +127,66 @@
 
 {{-- CREATE MODAL --}}
 <div class="modal-overlay" id="createModal">
-    <div class="modal">
+    <div class="modal" style="max-width:620px;">
         <div class="modal-header">
             <div class="modal-title"><i class="bi bi-building modal-icon"></i> Add New Tenant</div>
             <button class="modal-close" onclick="closeModal('createModal')">&times;</button>
         </div>
-        <form method="POST" action="{{ route('tenants.store') }}">
+        <form method="POST" action="{{ route('tenants.store') }}" id="createTenantForm">
             @csrf
             <div class="modal-body">
-                <div class="form-group">
-                    <label class="form-label">Tenant Name <span class="required-star">*</span></label>
-                    <input type="text" name="name" id="createName" class="form-control" required
-                           value="{{ old('name') }}" placeholder="Acme Corp">
+                <div class="form-row cols-2">
+                    <div class="form-group">
+                        <label class="form-label">Tenant Name <span class="required-star">*</span></label>
+                        <input type="text" name="name" id="createName" class="form-control" required
+                               value="{{ old('name') }}" placeholder="Ej. Tizón 317 Pizzería">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Slug <span class="required-star">*</span></label>
+                        <input type="text" name="slug" id="createSlug" class="form-control" required
+                               value="{{ old('slug') }}" placeholder="tizon317"
+                               pattern="[a-z0-9\-]+" title="Lowercase letters, numbers and hyphens only">
+                    </div>
                 </div>
+
                 <div class="form-group">
-                    <label class="form-label">Slug <span class="required-star">*</span></label>
-                    <input type="text" name="slug" id="createSlug" class="form-control" required
-                           value="{{ old('slug') }}" placeholder="acme-corp"
-                           pattern="[a-z0-9\-]+" title="Lowercase letters, numbers and hyphens only">
-                    <div class="form-hint">Auto-generated from name. Lowercase letters, numbers and hyphens only.</div>
+                    <label class="form-label">Tipo de Giro / Negocio <span class="required-star">*</span></label>
+                    <select name="business_type" id="createBusinessType" class="form-control" onchange="syncTenantBusinessType('create', this.value)">
+                        <option value="call_center" {{ old('business_type') === 'call_center' ? 'selected' : '' }}>📞 Call Center / Ventas B2B (Leads, Pipeline, Marcador Predictivo)</option>
+                        <option value="restaurant" {{ old('business_type') === 'restaurant' ? 'selected' : '' }}>🍕 Restaurante / Toma de Pedidos (WhatsApp + Voz IA + Comandas)</option>
+                    </select>
                 </div>
+
+                <div id="createRestaurantSettings" style="display:none;padding:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;margin-bottom:14px;">
+                    <div style="font-weight:700;font-size:13px;color:#c2410c;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+                        <i class="bi bi-shop"></i> Configuración Operativa del Restaurante
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">WhatsApp Privado de Cocina / Sucursal</label>
+                        <input type="text" name="kitchen_whatsapp_phone" id="createKitchenPhone" class="form-control" placeholder="Ej. 5218112345678" value="{{ old('kitchen_whatsapp_phone') }}">
+                        <div class="form-hint">A este número llegarán automáticamente las comandas/pedidos tomados por Voz o WhatsApp.</div>
+                    </div>
+                    <div class="form-row cols-2">
+                        <div class="form-group mb-0">
+                            <label class="form-label">Costo de Envío ($)</label>
+                            <input type="text" name="delivery_fee" id="createDeliveryFee" class="form-control" placeholder="Ej. $40.00 MXN" value="{{ old('delivery_fee', '$40.00') }}">
+                        </div>
+                        <div class="form-group mb-0">
+                            <label class="form-label">Tiempo Estimado de Entrega</label>
+                            <input type="text" name="estimated_time" id="createEstimatedTime" class="form-control" placeholder="Ej. 35 a 45 min" value="{{ old('estimated_time', '35 a 45 min') }}">
+                        </div>
+                    </div>
+                </div>
+
                 <div class="form-group mb-0">
-                    <label class="form-label">Permissions granted to this tenant</label>
-                    <div class="form-hint" style="margin-bottom:8px;">Only what you select here will be available for this tenant's admin to build roles with. Nothing is granted by default.</div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                        <label class="form-label mb-0">Permissions granted to this tenant</label>
+                        <div style="display:flex;gap:6px;">
+                            <button type="button" class="btn btn-outline btn-xs" onclick="applyTenantPermPreset('restaurant')" style="color:#c2410c;border-color:#fdba74;">🍕 Preset Restaurante</button>
+                            <button type="button" class="btn btn-outline btn-xs" onclick="applyTenantPermPreset('call_center')" style="color:#4338ca;border-color:#a5b4fc;">📞 Preset Call Center</button>
+                        </div>
+                    </div>
+                    <div class="form-hint" style="margin-bottom:8px;">Selecciona los módulos habilitados para este Tenant (cambia automáticamente según el giro elegido arriba).</div>
                     @foreach($permissions as $module => $perms)
                     <div style="margin-bottom:10px;">
                         <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">
@@ -133,7 +195,7 @@
                         <div style="display:flex;flex-wrap:wrap;gap:8px;">
                             @foreach($perms as $perm)
                             <label style="display:flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;font-size:12px;">
-                                <input type="checkbox" name="permission_ids[]" value="{{ $perm->id }}">
+                                <input type="checkbox" name="permission_ids[]" value="{{ $perm->id }}" data-perm-name="{{ $perm->name }}" class="js-create-perm">
                                 <i class="bi {{ $perm->icon }}"></i> {{ $perm->label }}
                             </label>
                             @endforeach
@@ -152,7 +214,7 @@
 
 {{-- EDIT MODAL --}}
 <div class="modal-overlay" id="editModal">
-    <div class="modal">
+    <div class="modal" style="max-width:540px;">
         <div class="modal-header">
             <div class="modal-title"><i class="bi bi-pencil modal-icon"></i> Edit Tenant</div>
             <button class="modal-close" onclick="closeModal('editModal')">&times;</button>
@@ -160,16 +222,47 @@
         <form method="POST" id="editForm">
             @csrf @method('PUT')
             <div class="modal-body">
-                <div class="form-group">
-                    <label class="form-label">Tenant Name <span class="required-star">*</span></label>
-                    <input type="text" name="name" id="editName" class="form-control" required>
+                <div class="form-row cols-2">
+                    <div class="form-group">
+                        <label class="form-label">Tenant Name <span class="required-star">*</span></label>
+                        <input type="text" name="name" id="editName" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Slug <span class="required-star">*</span></label>
+                        <input type="text" name="slug" id="editSlug" class="form-control" required
+                               pattern="[a-z0-9\-]+" title="Lowercase letters, numbers and hyphens only">
+                    </div>
                 </div>
+
                 <div class="form-group">
-                    <label class="form-label">Slug <span class="required-star">*</span></label>
-                    <input type="text" name="slug" id="editSlug" class="form-control" required
-                           pattern="[a-z0-9\-]+" title="Lowercase letters, numbers and hyphens only">
-                    <div class="form-hint">Lowercase letters, numbers and hyphens only.</div>
+                    <label class="form-label">Tipo de Giro / Negocio <span class="required-star">*</span></label>
+                    <select name="business_type" id="editBusinessType" class="form-control" onchange="syncTenantBusinessType('edit', this.value)">
+                        <option value="call_center">📞 Call Center / Ventas B2B</option>
+                        <option value="restaurant">🍕 Restaurante / Toma de Pedidos (WhatsApp + Voz IA)</option>
+                    </select>
                 </div>
+
+                <div id="editRestaurantSettings" style="display:none;padding:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;margin-bottom:14px;">
+                    <div style="font-weight:700;font-size:13px;color:#c2410c;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+                        <i class="bi bi-shop"></i> Configuración Operativa del Restaurante
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">WhatsApp Privado de Cocina / Sucursal</label>
+                        <input type="text" name="kitchen_whatsapp_phone" id="editKitchenPhone" class="form-control" placeholder="Ej. 5218112345678">
+                        <div class="form-hint">A este número llegarán automáticamente las comandas/pedidos confirmados.</div>
+                    </div>
+                    <div class="form-row cols-2">
+                        <div class="form-group mb-0">
+                            <label class="form-label">Costo de Envío ($)</label>
+                            <input type="text" name="delivery_fee" id="editDeliveryFee" class="form-control" placeholder="Ej. $40.00 MXN">
+                        </div>
+                        <div class="form-group mb-0">
+                            <label class="form-label">Tiempo Estimado de Entrega</label>
+                            <input type="text" name="estimated_time" id="editEstimatedTime" class="form-control" placeholder="Ej. 35 a 45 min">
+                        </div>
+                    </div>
+                </div>
+
                 <div class="form-group mb-0">
                     <div class="check-row">
                         <input type="hidden" name="is_active" value="0">
@@ -199,6 +292,45 @@ window.TenantsConfig = {
         isActive: @json(old('is_active', '1')),
     }
 };
+
+const RESTAURANT_PERMS = [
+    'view_console',
+    'view_all_leads',
+    'view_my_leads',
+    'manage_whatsapp_accounts',
+    'manage_whatsapp_templates',
+    'manage_social_accounts',
+    'manage_sms_channels',
+    'manage_sms_templates',
+    'manage_conversation_automation',
+    'manage_marketing_campaigns',
+    'manage_lead_lists',
+    'manage_scripts',
+    'manage_omni_queues',
+    'manage_users',
+    'view_calls_report',
+    'view_conversations'
+];
+
+function applyTenantPermPreset(type) {
+    document.querySelectorAll('.js-create-perm').forEach(cb => {
+        if (type === 'call_center') {
+            cb.checked = true;
+        } else {
+            cb.checked = RESTAURANT_PERMS.includes(cb.dataset.permName);
+        }
+    });
+}
+
+function syncTenantBusinessType(prefix, value) {
+    const box = document.getElementById(prefix + 'RestaurantSettings');
+    if (box) {
+        box.style.display = (value === 'restaurant') ? '' : 'none';
+    }
+    if (prefix === 'create') {
+        applyTenantPermPreset(value);
+    }
+}
 </script>
 <script src="{{ asset('js/tenants.js') }}"></script>
 @endpush

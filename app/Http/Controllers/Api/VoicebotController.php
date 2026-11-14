@@ -63,9 +63,13 @@ class VoicebotController extends Controller
             $dialerCampaign = DialerCampaign::withoutGlobalScopes()->find($campaignId);
         }
 
-        $tenantId = $lead?->tenant_id
-            ?? $dialerCampaign?->tenant_id
-            ?? ($agentIdParam === 'agent_2101m5xst5cgf1gv86jxhf2an2nd' ? 5 : 2);
+        $isTizonOrderAgent = ($agentIdParam === 'agent_1001m7bb8cw3ffvb9wvkpqvzjmv0');
+
+        $tenantId = $isTizonOrderAgent
+            ? 6
+            : ($lead?->tenant_id
+                ?? $dialerCampaign?->tenant_id
+                ?? ($agentIdParam === 'agent_2101m5xst5cgf1gv86jxhf2an2nd' ? 5 : 2));
 
         $assignedTo = $lead?->assigned_to
             ?? ($tenantId === 5 ? 18 : 10); // 18: Miguel Angel (FOU), 10: Agente (Xedik)
@@ -156,7 +160,7 @@ class VoicebotController extends Controller
             $lead->phone = $phone ?: '8122140136';
             $lead->status = $isScheduled ? 'qualified' : 'contacted';
             $lead->source = 'AI Voicebot';
-            $lead->campaign_id = $dialerCampaign?->campaign_id ?? ($tenantId === 5 ? 5 : 3);
+            $lead->campaign_id = $dialerCampaign?->campaign_id ?? ($tenantId === 6 ? 6 : ($tenantId === 5 ? 5 : 3));
             $lead->assigned_to = $assignedTo;
             $lead->notes = "[Llamada Voicebot | {$sentimentLabel} | {$durFormatted}]: " . ($callSummary ?: $notes);
             $lead->save();
@@ -207,9 +211,11 @@ class VoicebotController extends Controller
             'scheduled_at' => $scheduledAt?->toDateTimeString()
         ]);
 
-        // 6. Si se agendó cita, disparar WhatsApp de confirmación inmediata
+        // 6. Si es agente de restaurante (Tizón 317), enviar ticket de pedido por WhatsApp al cliente y a cocina
         $waSent = false;
-        if ($isScheduled && $scheduledAt) {
+        if ($isTizonOrderAgent && !empty($transcript)) {
+            $waSent = $this->sendRestaurantVoiceOrderWhatsapp($phone, $lead, $transcript, $callSummary);
+        } elseif ($isScheduled && $scheduledAt) {
             try {
                 $notificationService = app(AppointmentNotificationService::class);
                 $res = $notificationService->sendConfirmation($call);
@@ -228,6 +234,86 @@ class VoicebotController extends Controller
             'scheduled_at' => $scheduledAt?->toDateTimeString(),
             'wa_sent'      => $waSent,
         ]);
+    }
+
+    private function sendRestaurantVoiceOrderWhatsapp(string $callerPhone, Lead $lead, string $transcript, string $callSummary): bool
+    {
+        try {
+            $waAccount = \App\Models\WhatsappAccount::withoutGlobalScopes()
+                ->where('tenant_id', 6)
+                ->where('is_active', true)
+                ->first()
+                ?? \App\Models\WhatsappAccount::withoutGlobalScopes()
+                    ->where('tenant_id', 2)
+                    ->where('is_active', true)
+                    ->first();
+
+            if (!$waAccount) {
+                return false;
+            }
+
+            $apiBase = rtrim((string) env('WHATSAPP_API_BASE_URL', 'https://graph.facebook.com/v21.0'), '/');
+            $tenant  = \App\Models\Tenant::find(6);
+            $kitchenPhone = $tenant?->kitchenWhatsappPhone();
+
+            // Extraer líneas del bot que confirman el pedido o resumen de la transcripción
+            $lines = array_values(array_filter(array_map('trim', explode("\n", $transcript))));
+            $lastLines = array_slice($lines, -8);
+            $dialogueExcerpt = implode("\n", $lastLines);
+
+            $customerDigits = preg_replace('/\D+/', '', $callerPhone);
+            if (strlen($customerDigits) === 10) {
+                $customerDigits = '521' . $customerDigits;
+            }
+
+            $customerMsg = "🍕 *¡Gracias por tu pedido en Tizón 317 Pizzería!*\n"
+                . "👤 *Cliente:* {$lead->first_name}\n"
+                . ($callSummary ? "📋 *Resumen:* {$callSummary}\n" : '')
+                . "━━━━━━━━━━━━━━━━━━━━\n"
+                . "{$dialogueExcerpt}\n"
+                . "━━━━━━━━━━━━━━━━━━━━\n"
+                . "⏱️ *Tiempo estimado:* 35 a 45 minutos.";
+
+            $sentAny = false;
+            if (strlen($customerDigits) >= 10) {
+                $resp = Http::withToken($waAccount->access_token)
+                    ->timeout(8)
+                    ->post("{$apiBase}/{$waAccount->phone_number_id}/messages", [
+                        'messaging_product' => 'whatsapp',
+                        'to'                => $customerDigits,
+                        'type'              => 'text',
+                        'text'              => ['body' => $customerMsg],
+                    ]);
+                $sentAny = $resp->successful();
+            }
+
+            if ($kitchenPhone) {
+                $kitchenDigits = preg_replace('/\D+/', '', $kitchenPhone);
+                if (strlen($kitchenDigits) === 10) {
+                    $kitchenDigits = '521' . $kitchenDigits;
+                }
+                $kitchenMsg = "🛎️ *NUEVO PEDIDO TELEFÓNICO (VOZ IA) — TIZÓN 317*\n"
+                    . "👤 *Cliente:* {$lead->first_name} ({$callerPhone})\n"
+                    . ($callSummary ? "📋 *Resumen IA:* {$callSummary}\n" : '')
+                    . "━━━━━━━━━━━━━━━━━━━━\n"
+                    . "{$transcript}";
+
+                $kResp = Http::withToken($waAccount->access_token)
+                    ->timeout(8)
+                    ->post("{$apiBase}/{$waAccount->phone_number_id}/messages", [
+                        'messaging_product' => 'whatsapp',
+                        'to'                => $kitchenDigits,
+                        'type'              => 'text',
+                        'text'              => ['body' => $kitchenMsg],
+                    ]);
+                $sentAny = $sentAny || $kResp->successful();
+            }
+
+            return $sentAny;
+        } catch (\Throwable $e) {
+            Log::warning("Error enviando pedido telefonico Tizon 317 por WhatsApp: " . $e->getMessage());
+            return false;
+        }
     }
 
     /**

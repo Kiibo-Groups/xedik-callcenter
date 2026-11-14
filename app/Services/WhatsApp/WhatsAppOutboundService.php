@@ -25,6 +25,11 @@ class WhatsAppOutboundService
     {
         $apiBase = env('WHATSAPP_API_BASE_URL', 'https://graph.facebook.com/v25.0');
 
+        $isConfirmedOrder = str_contains($text, '[PEDIDO_CONFIRMADO]');
+        if ($isConfirmedOrder) {
+            $text = trim(str_replace('[PEDIDO_CONFIRMADO]', '', $text));
+        }
+
         try {
             $response = Http::withToken($account->access_token)
                 ->timeout(10)
@@ -57,6 +62,36 @@ class WhatsAppOutboundService
             'sent_by'         => $sentBy,
             'sent_at'         => now(),
         ]);
+
+        // Si el bot confirmó un pedido ([PEDIDO_CONFIRMADO]), reenviar comanda al WhatsApp de Cocina
+        if ($isConfirmedOrder) {
+            try {
+                $tenant = \App\Models\Tenant::find($conversation->tenant_id)
+                    ?? \App\Models\Tenant::where('slug', 'tizon317')->first();
+                $kitchenPhone = $tenant?->kitchenWhatsappPhone();
+                if ($kitchenPhone) {
+                    $kitchenDigits = preg_replace('/\D+/', '', $kitchenPhone);
+                    if (strlen($kitchenDigits) === 10) {
+                        $kitchenDigits = '521' . $kitchenDigits;
+                    }
+                    $kitchenMsg = "🛎️ *NUEVA COMANDA CONFIRMADA (WHATSAPP IA)*\n"
+                        . "👤 *Cliente:* {$conversation->from_name} (+{$conversation->external_id})\n"
+                        . "━━━━━━━━━━━━━━━━━━━━\n"
+                        . $text;
+
+                    Http::withToken($account->access_token)
+                        ->timeout(8)
+                        ->post("{$apiBase}/{$account->phone_number_id}/messages", [
+                            'messaging_product' => 'whatsapp',
+                            'to'                => $kitchenDigits,
+                            'type'              => 'text',
+                            'text'              => ['body' => $kitchenMsg],
+                        ]);
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('[WhatsAppOutboundService] Kitchen notification failed: ' . $e->getMessage());
+            }
+        }
 
         return ['ok' => true, 'message' => $message, 'wamid' => $wamid];
     }

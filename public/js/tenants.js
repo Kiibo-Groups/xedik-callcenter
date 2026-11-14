@@ -17,13 +17,29 @@ document.getElementById('createName').addEventListener('input', function () {
 // Edit button — populate modal
 document.querySelectorAll('.edit-tenant-btn').forEach(function (btn) {
     btn.addEventListener('click', function () {
-        var id       = this.dataset.id;
-        var isActive = this.dataset.isActive === '1';
+        var id           = this.dataset.id;
+        var isActive     = this.dataset.isActive === '1';
+        var businessType = this.dataset.businessType || 'call_center';
 
-        document.getElementById('editName').value     = this.dataset.name;
-        document.getElementById('editSlug').value     = this.dataset.slug;
-        document.getElementById('editIsActive').checked = isActive;
-        document.getElementById('editForm').action    = '/tenants/' + id;
+        document.getElementById('editName').value           = this.dataset.name;
+        document.getElementById('editSlug').value           = this.dataset.slug;
+        document.getElementById('editIsActive').checked     = isActive;
+        document.getElementById('editForm').action          = '/tenants/' + id;
+
+        var btSelect = document.getElementById('editBusinessType');
+        if (btSelect) {
+            btSelect.value = businessType;
+        }
+        var kpInput = document.getElementById('editKitchenPhone');
+        if (kpInput) kpInput.value = this.dataset.kitchenPhone || '';
+        var dfInput = document.getElementById('editDeliveryFee');
+        if (dfInput) dfInput.value = this.dataset.deliveryFee || '';
+        var etInput = document.getElementById('editEstimatedTime');
+        if (etInput) etInput.value = this.dataset.estimatedTime || '';
+
+        if (typeof syncTenantBusinessType === 'function') {
+            syncTenantBusinessType('edit', businessType);
+        }
 
         openModal('editModal');
     });
