@@ -114,6 +114,13 @@ Route::middleware('auth')->group(function () {
     Route::patch('/calls/{call}/complete',      [CallController::class, 'complete'])->name('calls.complete');
     Route::get('/leads/{lead}/calls',           [CallController::class, 'forLead'])->name('calls.forLead');
 
+    // Restaurant Orders & Kitchen Display System (KDS)
+    Route::get('/orders',                       [\App\Http\Controllers\RestaurantOrderController::class, 'index'])->name('orders.index');
+    Route::post('/orders',                      [\App\Http\Controllers\RestaurantOrderController::class, 'store'])->name('orders.store');
+    Route::get('/orders/kds',                   [\App\Http\Controllers\RestaurantOrderController::class, 'kds'])->name('orders.kds');
+    Route::get('/orders/poll',                  [\App\Http\Controllers\RestaurantOrderController::class, 'poll'])->name('orders.poll');
+    Route::patch('/orders/{order}/status',      [\App\Http\Controllers\RestaurantOrderController::class, 'updateStatus'])->name('orders.update-status');
+
     // Lead Statuses
     Route::get('/statuses',                          [StatusController::class, 'index'])->name('statuses.index');
     Route::post('/statuses',                         [StatusController::class, 'store'])->name('statuses.store');

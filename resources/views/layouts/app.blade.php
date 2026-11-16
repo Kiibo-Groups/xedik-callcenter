@@ -59,6 +59,18 @@
                     <span class="nav-link-text">Home</span>
                 </a>
             </div>
+            <div class="nav-item">
+                <a href="{{ route('orders.index') }}" class="nav-link {{ request()->routeIs('orders.index') ? 'active' : '' }}" title="Pedidos & Comandas">
+                    <i class="bi bi-fire" style="color:#f97316;"></i>
+                    <span class="nav-link-text">Pedidos & Comandas</span>
+                </a>
+            </div>
+            <div class="nav-item">
+                <a href="{{ route('orders.kds') }}" target="_blank" class="nav-link {{ request()->routeIs('orders.kds') ? 'active' : '' }}" title="KDS Pantalla de Cocina">
+                    <i class="bi bi-display" style="color:#10b981;"></i>
+                    <span class="nav-link-text">KDS Cocina (Vivo)</span>
+                </a>
+            </div>
         </nav>
     </div>
 

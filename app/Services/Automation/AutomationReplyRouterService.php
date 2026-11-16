@@ -96,40 +96,19 @@ class AutomationReplyRouterService
             'sent_at'         => now(),
         ]);
 
-        // Si el bot confirmó un pedido por Facebook/Instagram ([PEDIDO_CONFIRMADO]), reenviar comanda al WhatsApp de Cocina
+        // Si el bot confirmó un pedido por Facebook/Instagram ([PEDIDO_CONFIRMADO]), crear comanda en KDS y notificar al WhatsApp de Cocina
         if ($isConfirmedOrder) {
             try {
-                $tenant = \App\Models\Tenant::find($conversation->tenant_id);
-                $kitchenPhone = $tenant?->kitchenWhatsappPhone();
-                $waAccount = \App\Models\WhatsappAccount::withoutGlobalScopes()
-                    ->where('tenant_id', $conversation->tenant_id)
-                    ->where('is_active', true)
-                    ->first()
-                    ?? \App\Models\WhatsappAccount::withoutGlobalScopes()
-                        ->where('is_active', true)
-                        ->first();
-
-                if ($kitchenPhone && $waAccount) {
-                    $kitchenDigits = preg_replace('/\D+/', '', $kitchenPhone);
-                    if (strlen($kitchenDigits) === 10) {
-                        $kitchenDigits = '521' . $kitchenDigits;
-                    }
-                    $channelLabel = strtoupper($conversation->channel);
-                    $kitchenMsg = "🛎️ *NUEVA COMANDA CONFIRMADA ({$channelLabel} IA)*\n"
-                        . "👤 *Cliente:* {$conversation->from_name}\n"
-                        . "━━━━━━━━━━━━━━━━━━━━\n"
-                        . $text;
-
-                    $apiBase = env('WHATSAPP_API_BASE_URL', 'https://graph.facebook.com/v22.0');
-                    \Illuminate\Support\Facades\Http::withToken($waAccount->access_token)
-                        ->timeout(8)
-                        ->post("{$apiBase}/{$waAccount->phone_number_id}/messages", [
-                            'messaging_product' => 'whatsapp',
-                            'to'                => $kitchenDigits,
-                            'type'              => 'text',
-                            'text'              => ['body' => $kitchenMsg],
-                        ]);
-                }
+                app(\App\Services\Restaurant\RestaurantOrderService::class)->createOrderAndNotify([
+                    'tenant_id'       => $conversation->tenant_id,
+                    'channel'         => $conversation->channel,
+                    'customer_name'   => $conversation->from_name ?: 'Cliente Redes',
+                    'customer_phone'  => null,
+                    'raw_text'        => $text,
+                    'conversation_id' => $conversation->id,
+                    'notify_customer' => false,
+                    'notify_kitchen'  => true,
+                ]);
             } catch (\Throwable $e) {
                 Log::warning('[AutomationReplyRouterService] Social kitchen notification failed: ' . $e->getMessage());
             }

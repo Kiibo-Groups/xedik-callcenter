@@ -63,31 +63,19 @@ class WhatsAppOutboundService
             'sent_at'         => now(),
         ]);
 
-        // Si el bot confirmó un pedido ([PEDIDO_CONFIRMADO]), reenviar comanda al WhatsApp de Cocina
+        // Si el bot confirmó un pedido ([PEDIDO_CONFIRMADO]), crear comanda en KDS y notificar al WhatsApp de Cocina (con soporte Plantilla 24h)
         if ($isConfirmedOrder) {
             try {
-                $tenant = \App\Models\Tenant::find($conversation->tenant_id)
-                    ?? \App\Models\Tenant::where('slug', 'tizon317')->first();
-                $kitchenPhone = $tenant?->kitchenWhatsappPhone();
-                if ($kitchenPhone) {
-                    $kitchenDigits = preg_replace('/\D+/', '', $kitchenPhone);
-                    if (strlen($kitchenDigits) === 10) {
-                        $kitchenDigits = '521' . $kitchenDigits;
-                    }
-                    $kitchenMsg = "🛎️ *NUEVA COMANDA CONFIRMADA (WHATSAPP IA)*\n"
-                        . "👤 *Cliente:* {$conversation->from_name} (+{$conversation->external_id})\n"
-                        . "━━━━━━━━━━━━━━━━━━━━\n"
-                        . $text;
-
-                    Http::withToken($account->access_token)
-                        ->timeout(8)
-                        ->post("{$apiBase}/{$account->phone_number_id}/messages", [
-                            'messaging_product' => 'whatsapp',
-                            'to'                => $kitchenDigits,
-                            'type'              => 'text',
-                            'text'              => ['body' => $kitchenMsg],
-                        ]);
-                }
+                app(\App\Services\Restaurant\RestaurantOrderService::class)->createOrderAndNotify([
+                    'tenant_id'       => $conversation->tenant_id,
+                    'channel'         => 'whatsapp',
+                    'customer_name'   => $conversation->from_name ?: 'Cliente WhatsApp',
+                    'customer_phone'  => $conversation->external_id,
+                    'raw_text'        => $text,
+                    'conversation_id' => $conversation->id,
+                    'notify_customer' => false, // El cliente ya recibió el ticket en la respuesta de la conversación activa
+                    'notify_kitchen'  => true,
+                ]);
             } catch (\Throwable $e) {
                 \Illuminate\Support\Facades\Log::warning('[WhatsAppOutboundService] Kitchen notification failed: ' . $e->getMessage());
             }
