@@ -249,20 +249,19 @@ class ZernioWebhookController extends Controller
         if ((bool) $aiBotActive) {
             $recentMessages = Message::withoutGlobalScopes()
                 ->where('conversation_id', $conversation->id)
+                ->where('id', '<', $message->id)
                 ->orderByDesc('id')
                 ->limit(8)
                 ->get()
                 ->reverse()
                 ->values();
 
-            $hasAssistantReply = $recentMessages->contains(fn ($m) => $m->sender_type !== 'customer');
-
-            $historyText = $recentMessages
-                ->map(function ($m) {
-                    $role = $m->sender_type === 'customer' ? 'Cliente' : 'Asesor';
-                    return "{$role}: " . trim((string) $m->content);
-                })
-                ->implode("\n");
+            $historyLines = [];
+            foreach ($recentMessages as $rm) {
+                $roleLabel = $rm->direction === 'inbound' ? 'Cliente' : 'Asesor (Tú)';
+                $historyLines[] = "{$roleLabel}: " . trim((string) $rm->body_text);
+            }
+            $historyText = implode("\n", $historyLines);
 
             $this->automationForwardingService->forwardInboundMessage($account->tenant_id, $channel, [
                 'event'                => "{$channel}.inbound_message",
@@ -277,7 +276,7 @@ class ZernioWebhookController extends Controller
                 'contact_name'         => $participantName,
                 'message_type'         => $firstAttachmentType ?? 'text',
                 'text'                 => $bodyText,
-                'is_first_message'     => ! $hasAssistantReply,
+                'is_first_message'     => empty($historyLines),
                 'history'              => $historyText,
                 'received_at'          => $sentAt->toIso8601String(),
                 'source'               => 'crm.xedik.cloud',

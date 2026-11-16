@@ -214,7 +214,17 @@ class VoicebotController extends Controller
         // 6. Si es agente de restaurante (Tizón 317), enviar ticket de pedido por WhatsApp al cliente y a cocina
         $waSent = false;
         if ($isTizonOrderAgent && !empty($transcript)) {
-            $waSent = $this->sendRestaurantVoiceOrderWhatsapp($phone, $lead, $transcript, $callSummary);
+            $tLower = mb_strtolower($transcript);
+            $hasConfirmedOrder = $isScheduled || str_contains($tLower, 'pedido queda confirmado')
+                || str_contains($tLower, 'confirmado tu pedido')
+                || str_contains($tLower, 'te llegará tu ticket')
+                || str_contains($tLower, 'gracias por tu compra')
+                || str_contains($tLower, 'veinte a veinticinco minutos')
+                || str_contains($tLower, 'treinta y cinco a cuarenta y cinco');
+
+            if ($hasConfirmedOrder) {
+                $waSent = $this->sendRestaurantVoiceOrderWhatsapp($phone, $lead, $transcript, $callSummary);
+            }
         } elseif ($isScheduled && $scheduledAt) {
             try {
                 $notificationService = app(AppointmentNotificationService::class);
