@@ -32,6 +32,33 @@ return new class extends Migration
                 $table->timestamps();
             });
         }
+
+        // Seed manage_orders and view_kds permissions
+        $perms = [
+            [
+                'name'       => 'manage_orders',
+                'label'      => 'Orders & Comandas',
+                'module'     => 'orders',
+                'route'      => 'orders.index',
+                'icon'       => 'bi-receipt-cutoff',
+                'sort_order' => 1,
+            ],
+            [
+                'name'       => 'view_kds',
+                'label'      => 'Live KDS Board',
+                'module'     => 'orders',
+                'route'      => 'orders.kds',
+                'icon'       => 'bi-display',
+                'sort_order' => 2,
+            ],
+        ];
+
+        foreach ($perms as $p) {
+            \Illuminate\Support\Facades\DB::table('permissions')->updateOrInsert(
+                ['name' => $p['name']],
+                array_merge($p, ['updated_at' => now(), 'created_at' => now()])
+            );
+        }
     }
 
     public function down(): void

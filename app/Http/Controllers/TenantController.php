@@ -53,6 +53,20 @@ class TenantController extends Controller
         ]);
 
         $grantedPermissionIds = collect($validated['permission_ids'] ?? []);
+        if ($businessType === 'restaurant') {
+            $restaurantDefaultPerms = \App\Models\Permission::whereIn('name', [
+                'view_console',
+                'manage_orders',
+                'view_kds',
+                'manage_whatsapp_accounts',
+                'manage_whatsapp_templates',
+                'manage_social_accounts',
+                'manage_conversation_automation',
+            ])->pluck('id');
+            $grantedPermissionIds = $grantedPermissionIds->isEmpty()
+                ? $restaurantDefaultPerms
+                : $grantedPermissionIds->merge($restaurantDefaultPerms)->unique()->values();
+        }
 
         $this->seedTenantEntitlements($tenant->id, $grantedPermissionIds);
         $this->seedDefaultRoles($tenant->id, $grantedPermissionIds);

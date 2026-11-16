@@ -44,9 +44,14 @@ class Script extends Model
 
     public const DIRECTIONS = ['inbound', 'outbound', 'both'];
 
+    public function tenant(): BelongsTo
+    {
+        return $this->belongsTo(Tenant::class);
+    }
+
     public function campaign(): BelongsTo
     {
-        return $this->belongsTo(Campaign::class);
+        return $this->belongsTo(Campaign::class)->withoutGlobalScopes();
     }
 
     public function confirmationWaTemplate(): BelongsTo

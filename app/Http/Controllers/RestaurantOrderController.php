@@ -32,7 +32,12 @@ class RestaurantOrderController extends Controller
     {
         $tenantId = $this->resolveTargetTenantId();
 
-        $query = RestaurantOrder::withoutGlobalScopes()->orderByDesc('id');
+        $query = RestaurantOrder::withoutGlobalScopes()
+            ->with([
+                'call'   => fn ($q) => $q->withoutGlobalScopes(),
+                'tenant' => fn ($q) => $q->withoutGlobalScopes(),
+            ])
+            ->orderByDesc('id');
         if ($tenantId) {
             $query->where('tenant_id', $tenantId);
         }

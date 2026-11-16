@@ -6,47 +6,54 @@ namespace App\Http\Controllers;
 
 use App\Models\Campaign;
 use App\Models\Script;
+use App\Models\Tenant;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class ScriptController extends Controller
 {
     public function index()
     {
-        abort_unless(auth()->user()->hasPermission('manage_scripts'), 403);
+        abort_unless(auth()->user()->hasPermission('manage_scripts') || auth()->user()->isSuperAdmin(), 403);
 
         $scripts = Script::withoutGlobalScopes()
-            ->whereIn('campaign_id', $this->accessibleCampaignQuery()->select('id'))
-            ->with('campaign')
+            ->when(!auth()->user()->isSuperAdmin(), fn ($q) => $q->where('tenant_id', auth()->user()->tenant_id))
+            ->with(['campaign', 'tenant'])
+            ->orderBy('tenant_id')
             ->orderBy('campaign_id')
             ->orderBy('sort_order')
             ->orderBy('name')
             ->get();
 
         $campaigns = $this->accessibleCampaignQuery()->orderBy('name')->get();
+        $tenants   = auth()->user()->isSuperAdmin()
+            ? Tenant::orderBy('name')->get()
+            : collect();
 
-        return view('scripts.index', compact('scripts', 'campaigns'));
+        return view('scripts.index', compact('scripts', 'campaigns', 'tenants'));
     }
 
     public function create()
     {
-        abort_unless(auth()->user()->hasPermission('manage_scripts'), 403);
+        abort_unless(auth()->user()->hasPermission('manage_scripts') || auth()->user()->isSuperAdmin(), 403);
 
-        $campaigns = $this->accessibleCampaignQuery()->orderBy('name')->get();
-
+        $campaigns   = $this->accessibleCampaignQuery()->orderBy('name')->get();
+        $tenants     = auth()->user()->isSuperAdmin() ? Tenant::orderBy('name')->get() : collect();
         $waTemplates = \App\Models\WhatsappTemplate::withoutGlobalScopes()->where('is_active', true)->orderBy('display_name')->get();
 
         return view('scripts.form', [
             'script'      => new Script(),
             'campaigns'   => $campaigns,
+            'tenants'     => $tenants,
             'waTemplates' => $waTemplates,
         ]);
     }
 
     public function store(Request $request)
     {
-        abort_unless(auth()->user()->hasPermission('manage_scripts'), 403);
+        abort_unless(auth()->user()->hasPermission('manage_scripts') || auth()->user()->isSuperAdmin(), 403);
 
         $data = $this->validateScript($request);
 
@@ -61,34 +68,44 @@ class ScriptController extends Controller
                     $data['direction']
                 );
             }
-            return Script::create($data);
+            return Script::withoutGlobalScopes()->create($data);
         });
 
         $this->syncWithElevenLabs($script);
 
         return redirect()->route('scripts.index')
-            ->with('success', 'Script created and synced with Voicebot IA successfully.');
+            ->with('success', 'Script created and synced with ElevenLabs Voice AI successfully.');
     }
 
-    public function edit(Script $script)
+    public function edit(int $scriptId)
     {
-        abort_unless(auth()->user()->hasPermission('manage_scripts'), 403);
+        abort_unless(auth()->user()->hasPermission('manage_scripts') || auth()->user()->isSuperAdmin(), 403);
+
+        $script = Script::withoutGlobalScopes()->findOrFail($scriptId);
         $this->authorizeTenant($script);
 
-        $campaigns = $this->accessibleCampaignQuery()->orderBy('name')->get();
+        // If script has an ElevenLabs Agent ID and its body is empty (or ?pull_elevenlabs=1), fetch live from ElevenLabs
+        if (!empty($script->voicebot_agent_id) && (empty(trim(strip_tags((string) $script->body))) || request()->boolean('pull_elevenlabs'))) {
+            $this->pullFromElevenLabs($script);
+        }
 
+        $campaigns   = $this->accessibleCampaignQuery()->orderBy('name')->get();
+        $tenants     = auth()->user()->isSuperAdmin() ? Tenant::orderBy('name')->get() : collect();
         $waTemplates = \App\Models\WhatsappTemplate::withoutGlobalScopes()->where('is_active', true)->orderBy('display_name')->get();
 
         return view('scripts.form', [
             'script'      => $script,
             'campaigns'   => $campaigns,
+            'tenants'     => $tenants,
             'waTemplates' => $waTemplates,
         ]);
     }
 
-    public function update(Request $request, Script $script)
+    public function update(Request $request, int $scriptId)
     {
-        abort_unless(auth()->user()->hasPermission('manage_scripts'), 403);
+        abort_unless(auth()->user()->hasPermission('manage_scripts') || auth()->user()->isSuperAdmin(), 403);
+
+        $script = Script::withoutGlobalScopes()->findOrFail($scriptId);
         $this->authorizeTenant($script);
 
         $data = $this->validateScript($request, $script);
@@ -111,12 +128,14 @@ class ScriptController extends Controller
         $this->syncWithElevenLabs($script);
 
         return redirect()->route('scripts.index')
-            ->with('success', 'Script updated and synced with Voicebot IA successfully.');
+            ->with('success', 'Script updated and synced with ElevenLabs Voice AI successfully.');
     }
 
-    public function destroy(Script $script)
+    public function destroy(int $scriptId)
     {
-        abort_unless(auth()->user()->hasPermission('manage_scripts'), 403);
+        abort_unless(auth()->user()->hasPermission('manage_scripts') || auth()->user()->isSuperAdmin(), 403);
+
+        $script = Script::withoutGlobalScopes()->findOrFail($scriptId);
         $this->authorizeTenant($script);
 
         $script->delete();
@@ -125,18 +144,12 @@ class ScriptController extends Controller
             ->with('success', 'Script deleted.');
     }
 
-    /**
-     * AJAX: return active scripts for a given campaign (for OmniQueue form).
-     */
     public function byCampaign(int $campaignId)
     {
-        abort_unless(auth()->user()->hasPermission('manage_scripts'), 403);
-
-        $tenantId = auth()->user()->tenant_id;
+        abort_unless(auth()->user()->hasPermission('manage_scripts') || auth()->user()->isSuperAdmin(), 403);
 
         $scripts = Script::withoutGlobalScopes()
             ->where('campaign_id', $campaignId)
-            ->where('tenant_id', $tenantId)
             ->where('is_active', true)
             ->orderBy('sort_order')
             ->orderBy('name')
@@ -149,13 +162,9 @@ class ScriptController extends Controller
 
     private function validateScript(Request $request, ?Script $script = null): array
     {
-        $campaignIds = $this->accessibleCampaignQuery()->pluck('id')->all();
-
         $data = $request->validate([
-            'campaign_id' => [
-                'required',
-                Rule::in($campaignIds),
-            ],
+            'tenant_id'   => 'nullable|integer|exists:tenants,id',
+            'campaign_id' => 'nullable|integer|exists:campaigns,id',
             'name'        => 'required|string|max:150',
             'type'        => 'required|in:builder,url',
             'direction'   => 'required|in:inbound,outbound,both',
@@ -169,8 +178,8 @@ class ScriptController extends Controller
                 'max:2048',
                 'regex:/^https?:\/\//i',
             ],
-            'url_target'        => 'nullable|in:tab,panel,modal',
-            'url_params'        => 'nullable|array',
+            'url_target'                  => 'nullable|in:tab,panel,modal',
+            'url_params'                  => 'nullable|array',
             'voicebot_agent_id'           => 'nullable|string|max:120',
             'voicebot_voice_id'           => 'nullable|string|max:120',
             'appointment_wa_confirmation' => 'nullable|boolean',
@@ -181,8 +190,52 @@ class ScriptController extends Controller
             'url.regex' => 'The URL must start with http:// or https://',
         ]);
 
-        // Cross-field: body required for builder, url required for url
-        if ($data['type'] === 'builder' && empty(trim($data['body'] ?? ''))) {
+        // Resolve tenant_id and campaign_id seamlessly (especially when SuperAdmin selects a Tenant)
+        $user = auth()->user();
+        $tenantId = $user->isSuperAdmin()
+            ? (int) ($data['tenant_id'] ?? 0)
+            : (int) $user->tenant_id;
+
+        if (!empty($data['campaign_id'])) {
+            $campaign = Campaign::withoutGlobalScopes()->find((int) $data['campaign_id']);
+            if ($campaign && (!$tenantId || $campaign->tenant_id === $tenantId)) {
+                $tenantId = (int) $campaign->tenant_id;
+            } elseif ($tenantId) {
+                // Campaign belonged to a different tenant -> pick or create default campaign for selected tenant
+                $data['campaign_id'] = null;
+            }
+        }
+
+        if (!$tenantId && $script) {
+            $tenantId = (int) $script->tenant_id;
+        }
+
+        if (empty($data['campaign_id']) && $tenantId) {
+            $defaultCampaign = Campaign::withoutGlobalScopes()
+                ->where('tenant_id', $tenantId)
+                ->orderBy('id')
+                ->first();
+
+            if (!$defaultCampaign) {
+                $tenantName = Tenant::where('id', $tenantId)->value('name') ?: 'Tenant';
+                $defaultCampaign = Campaign::withoutGlobalScopes()->create([
+                    'tenant_id'   => $tenantId,
+                    'name'        => "{$tenantName} — General",
+                    'description' => 'Default campaign created automatically for scripts.',
+                    'is_active'   => true,
+                ]);
+            }
+            $data['campaign_id'] = $defaultCampaign->id;
+        }
+
+        if (empty($data['campaign_id'])) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'campaign_id' => 'Please select a Tenant or Campaign.',
+            ]);
+        }
+
+        // Cross-field: body required for builder (unless pulling from ElevenLabs), url required for url
+        if ($data['type'] === 'builder' && empty(trim($data['body'] ?? '')) && empty($data['voicebot_agent_id'])) {
             throw \Illuminate\Validation\ValidationException::withMessages([
                 'body' => 'The script body is required for builder type.',
             ]);
@@ -192,21 +245,15 @@ class ScriptController extends Controller
                 'url' => 'A URL is required for url type.',
             ]);
         }
-        if ($data['type'] === 'url' && empty($data['url_target'])) {
-            throw \Illuminate\Validation\ValidationException::withMessages([
-                'url_target' => 'The URL target is required for URL scripts.',
-            ]);
-        }
 
         $data['is_default'] = $request->boolean('is_default');
         $data['is_active']  = $request->boolean('is_active', true);
         $data['sort_order'] = (int) ($data['sort_order'] ?? 0);
         $data['url_params'] = $this->sanitizeUrlParams($data['url_params'] ?? []);
-        $data['tenant_id']  = (int) Campaign::withoutGlobalScopes()
+        $data['tenant_id']  = $tenantId ?: (int) Campaign::withoutGlobalScopes()
             ->where('id', $data['campaign_id'])
             ->value('tenant_id');
 
-        // Clear irrelevant fields per type
         if ($data['type'] === 'url') {
             $data['body'] = null;
         } else {
@@ -218,11 +265,6 @@ class ScriptController extends Controller
         return $data;
     }
 
-    /**
-     * When marking a script as default, clear existing defaults for the same
-     * (campaign, direction) pair within the same tenant.
-     * Also clears 'both' defaults when setting a specific direction and vice-versa.
-     */
     private function clearPreviousDefault(int $campaignId, string $direction, ?int $excludeId = null): void
     {
         $query = Script::withoutGlobalScopes()
@@ -237,14 +279,8 @@ class ScriptController extends Controller
         $query->update(['is_default' => false]);
     }
 
-    /**
-     * Strip dangerous HTML from Jodit-generated body content.
-     * Allows common formatting elements while removing script tags,
-     * event handlers, and dangerous URL schemes.
-     */
     private function sanitizeBody(string $html): string
     {
-        // Allowed tags (Jodit produces these)
         $allowed = '<h1><h2><h3><h4><h5><h6>'
             . '<p><div><span><br><hr><blockquote><pre><code>'
             . '<strong><b><em><i><u><s><del><ins><mark>'
@@ -254,12 +290,8 @@ class ScriptController extends Controller
             . '<sub><sup>';
 
         $html = strip_tags($html, $allowed);
-
-        // Remove all event handlers (on*)
         $html = preg_replace('/\s+on\w+\s*=\s*"[^"]*"/i', '', $html);
         $html = preg_replace("/\\s+on\\w+\\s*=\\s*'[^']*'/i", '', $html);
-
-        // Replace javascript:/vbscript: in href and src
         $html = preg_replace(
             '/(href|src|action)\s*=\s*["\']?\s*(javascript|vbscript)\s*:/i',
             '$1="#" data-blocked=',
@@ -269,9 +301,6 @@ class ScriptController extends Controller
         return $html;
     }
 
-    /**
-     * Only allow whitelisted URL param keys.
-     */
     private function sanitizeUrlParams(?array $params): ?array
     {
         if (empty($params)) {
@@ -285,7 +314,7 @@ class ScriptController extends Controller
 
         return array_filter(
             $params,
-            fn($key) => in_array($key, $allowed, true),
+            fn ($key) => in_array($key, $allowed, true),
             ARRAY_FILTER_USE_KEY
         );
     }
@@ -312,32 +341,98 @@ class ScriptController extends Controller
         return $query;
     }
 
+    private function resolveElevenLabsApiKey(): ?string
+    {
+        $apiKey = config('services.elevenlabs.api_key') ?: env('ELEVENLABS_API_KEY');
+        if (!empty($apiKey)) {
+            return $apiKey;
+        }
+        if (is_readable('/etc/systemd/system/xedik-voicebot.service')) {
+            $svc = (string) @file_get_contents('/etc/systemd/system/xedik-voicebot.service');
+            if (preg_match('/ELEVENLABS_API_KEY=([^\s"\']+)/', $svc, $m)) {
+                return $m[1];
+            }
+        }
+        return null;
+    }
+
+    public function pullFromElevenLabs(Script $script): bool
+    {
+        $agentId = trim((string) $script->voicebot_agent_id);
+        $apiKey  = $this->resolveElevenLabsApiKey();
+        if (!$agentId || !$apiKey) {
+            return false;
+        }
+
+        try {
+            $resp = Http::withHeaders(['xi-api-key' => $apiKey])
+                ->timeout(8)
+                ->get("https://api.elevenlabs.io/v1/convai/agents/{$agentId}");
+
+            if (!$resp->successful()) {
+                return false;
+            }
+
+            $json         = $resp->json();
+            $firstMessage = trim((string) ($json['conversation_config']['agent']['first_message'] ?? ''));
+            $prompt       = trim((string) ($json['conversation_config']['agent']['prompt']['prompt'] ?? ''));
+            $voiceId      = trim((string) ($json['conversation_config']['tts']['voice_id'] ?? ''));
+
+            if ($prompt === '' && $firstMessage === '') {
+                return false;
+            }
+
+            $htmlParts = [];
+            if ($firstMessage !== '') {
+                $htmlParts[] = '<p><strong>SALUDO INICIAL:</strong> "' . e($firstMessage) . '"</p>';
+            }
+            foreach (explode("\n", $prompt) as $line) {
+                $htmlParts[] = '<p>' . e($line) . '</p>';
+            }
+
+            $script->body = implode("\n", $htmlParts);
+            if ($voiceId !== '' && empty($script->voicebot_voice_id)) {
+                $script->voicebot_voice_id = $voiceId;
+            }
+            $script->save();
+
+            return true;
+        } catch (\Throwable $e) {
+            Log::warning("pullFromElevenLabs failed for script #{$script->id}: " . $e->getMessage());
+            return false;
+        }
+    }
+
     private function syncWithElevenLabs(Script $script): void
     {
-        // Resolve agent dynamically from script model
-        $agentId = $script->voicebot_agent_id;
+        $agentId = trim((string) $script->voicebot_agent_id);
+        if (!$agentId) {
+            return;
+        }
 
-        if (!$agentId || empty($script->body)) {
+        // If body is empty when saving a script that has an agent ID, pull from ElevenLabs first
+        if (empty(trim(strip_tags((string) $script->body)))) {
+            $this->pullFromElevenLabs($script);
             return;
         }
 
         try {
-            // Convert HTML to clean plain text
-            $cleanText = str_replace(['&nbsp;', '&#160;'], ' ', $script->body);
+            $cleanText = str_replace(['&nbsp;', '&#160;'], ' ', (string) $script->body);
             $cleanText = str_replace(['<br>', '<br/>', '<br />', '</p>', '</div>', '</li>'], "\n", $cleanText);
             $cleanText = html_entity_decode(strip_tags($cleanText), ENT_QUOTES | ENT_HTML5, 'UTF-8');
             $cleanText = trim(preg_replace("/[ \t]+/", " ", $cleanText));
             $cleanText = trim(preg_replace("/\n{3,}/", "\n\n", $cleanText));
 
-            // Extract first message if present in text (e.g. SALUDO INICIAL: "...")
             $firstMessage = null;
             if (preg_match('/SALUDO INICIAL:?\s*[\r\n]*["“]([^"”]+)["”]/i', $cleanText, $matches)) {
                 $firstMessage = trim($matches[1]);
+                // Remove SALUDO INICIAL line from the system prompt so it isn't duplicated
+                $cleanText = trim(preg_replace('/SALUDO INICIAL:?\s*[\r\n]*["“][^"”]+["”]/i', '', $cleanText, 1));
             }
 
-            $apiKey = config('services.elevenlabs.api_key');
+            $apiKey = $this->resolveElevenLabsApiKey();
             if (empty($apiKey)) {
-                Log::warning("syncToElevenLabs: ELEVENLABS_API_KEY no está configurada en .env.");
+                Log::warning("syncToElevenLabs: ELEVENLABS_API_KEY not found.");
                 return;
             }
 
@@ -349,8 +444,17 @@ class ScriptController extends Controller
                         ],
                     ],
                     'tts' => [
-                        'agent_output_audio_format' => 'pcm_8000',
-                        'optimize_streaming_latency' => 2,
+                        'agent_output_audio_format'  => 'pcm_8000',
+                        'optimize_streaming_latency' => 1,
+                    ],
+                ],
+                'platform_settings' => [
+                    'overrides' => [
+                        'conversation_config_override' => [
+                            'agent' => [
+                                'first_message' => true,
+                            ],
+                        ],
                     ],
                 ],
             ];
@@ -363,15 +467,14 @@ class ScriptController extends Controller
                 $patchData['conversation_config']['agent']['first_message'] = $firstMessage;
             }
 
-            \Illuminate\Support\Facades\Http::withHeaders([
+            Http::withHeaders([
                 'xi-api-key'   => $apiKey,
                 'Content-Type' => 'application/json',
             ])->patch("https://api.elevenlabs.io/v1/convai/agents/{$agentId}", $patchData);
 
-            \Illuminate\Support\Facades\Log::info("Script #{$script->id} synced to ElevenLabs agent {$agentId}");
+            Log::info("Script #{$script->id} synced to ElevenLabs agent {$agentId}");
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::error("Error syncing script to ElevenLabs: " . $e->getMessage());
+            Log::error("Error syncing script to ElevenLabs: " . $e->getMessage());
         }
     }
 }
-

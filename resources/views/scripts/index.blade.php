@@ -27,12 +27,21 @@
     </div>
 </div>
 
-{{-- Campaign filter --}}
-<div class="filters-bar" style="margin-bottom:16px;">
-    <select id="filterCampaign" class="form-control" style="width:220px;" onchange="filterByCampaign(this.value)">
+{{-- Tenant & Campaign filter --}}
+<div class="filters-bar" style="margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap;">
+    @if(auth()->user()->isSuperAdmin() && isset($tenants) && $tenants->isNotEmpty())
+        <select id="filterTenant" class="form-control" style="width:220px;" onchange="applyScriptFilters()">
+            <option value="">All tenants</option>
+            @foreach($tenants as $t)
+                <option value="{{ $t->id }}">{{ $t->name }}</option>
+            @endforeach
+        </select>
+    @endif
+
+    <select id="filterCampaign" class="form-control" style="width:220px;" onchange="applyScriptFilters()">
         <option value="">All campaigns</option>
         @foreach($campaigns as $c)
-            <option value="{{ $c->id }}">{{ $c->name }}</option>
+            <option value="{{ $c->id }}" data-tenant="{{ $c->tenant_id }}">{{ $c->name }}</option>
         @endforeach
     </select>
 </div>
@@ -46,18 +55,19 @@
             <thead>
                 <tr>
                     <th>Name</th>
+                    <th>Tenant</th>
                     <th>Campaign</th>
+                    <th>Voice AI Agent</th>
                     <th>Type</th>
                     <th>Direction</th>
                     <th>Default</th>
-                    <th>Sort</th>
                     <th>Status</th>
                     <th></th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($scripts as $script)
-                <tr data-campaign="{{ $script->campaign_id }}">
+                <tr data-campaign="{{ $script->campaign_id }}" data-tenant="{{ $script->tenant_id }}">
                     <td>
                         <div class="cell-strong">{{ $script->name }}</div>
                         @if($script->url)
@@ -67,8 +77,27 @@
                         @endif
                     </td>
                     <td>
+                        @if($script->tenant)
+                            <span class="badge badge-info">
+                                <i class="bi {{ $script->tenant->isRestaurant() ? 'bi-shop' : 'bi-building' }}"></i>
+                                {{ $script->tenant->name }}
+                            </span>
+                        @else
+                            <span class="cell-muted">—</span>
+                        @endif
+                    </td>
+                    <td>
                         @if($script->campaign)
                             <span class="badge badge-secondary">{{ $script->campaign->name }}</span>
+                        @else
+                            <span class="cell-muted">—</span>
+                        @endif
+                    </td>
+                    <td>
+                        @if($script->voicebot_agent_id)
+                            <span class="badge badge-primary" style="font-family:monospace;font-size:11px;">
+                                <i class="bi bi-robot"></i> {{ \Illuminate\Support\Str::limit($script->voicebot_agent_id, 22) }}
+                            </span>
                         @else
                             <span class="cell-muted">—</span>
                         @endif
@@ -96,7 +125,6 @@
                             <span class="cell-muted">—</span>
                         @endif
                     </td>
-                    <td class="cell-muted">{{ $script->sort_order }}</td>
                     <td>
                         <span class="badge {{ $script->is_active ? 'badge-success' : 'badge-danger' }}">
                             {{ $script->is_active ? 'Active' : 'Inactive' }}
@@ -104,10 +132,10 @@
                     </td>
                     <td>
                         <div class="table-actions">
-                            <a href="{{ route('scripts.edit', $script) }}" class="btn btn-outline btn-xs">
+                            <a href="{{ route('scripts.edit', $script->id) }}" class="btn btn-outline btn-xs">
                                 <i class="bi bi-pencil"></i> Edit
                             </a>
-                            <form method="POST" action="{{ route('scripts.destroy', $script) }}"
+                            <form method="POST" action="{{ route('scripts.destroy', $script->id) }}"
                                   class="delete-form" data-name="{{ $script->name }}">
                                 @csrf @method('DELETE')
                                 <button type="submit" class="btn btn-danger btn-xs">
@@ -119,11 +147,11 @@
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="8">
+                    <td colspan="9">
                         <div class="empty-state">
                             <i class="bi bi-file-text"></i>
                             <h3>No scripts yet</h3>
-                            <p>Create scripts to guide agents during conversations.</p>
+                            <p>Create scripts to guide agents or configure ElevenLabs Voice AI prompts.</p>
                         </div>
                     </td>
                 </tr>
@@ -136,9 +164,15 @@
 @push('scripts')
 <script src="{{ asset('js/catalog-delete.js') }}"></script>
 <script>
-function filterByCampaign(id) {
+function applyScriptFilters() {
+    const tenantEl = document.getElementById('filterTenant');
+    const tenantId = tenantEl ? tenantEl.value : '';
+    const campaignId = document.getElementById('filterCampaign').value;
+
     document.querySelectorAll('tbody tr[data-campaign]').forEach(row => {
-        row.style.display = (!id || row.dataset.campaign == id) ? '' : 'none';
+        const matchTenant = !tenantId || row.dataset.tenant === tenantId;
+        const matchCamp   = !campaignId || row.dataset.campaign === campaignId;
+        row.style.display = (matchTenant && matchCamp) ? '' : 'none';
     });
 }
 </script>

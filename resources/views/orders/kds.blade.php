@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <link rel="icon" type="image/svg+xml" href="{{ asset('images/xedik-logo.svg') }}?v=20261114">
-    <title>KDS Cocina en Vivo — {{ $tenant?->name ?? 'Tizón 317' }} | XEDIK</title>
+    <title>Live KDS Board — {{ $tenant?->name ?? 'Orders' }} | XEDIK</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700;800&display=swap" rel="stylesheet">
@@ -39,12 +39,12 @@
             width: 42px;
             height: 42px;
             border-radius: 12px;
-            background: linear-gradient(135deg, #ea580c, #dc2626);
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 22px;
-            box-shadow: 0 4px 14px rgba(234, 88, 12, 0.4);
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
         }
         .kds-title {
             font-size: 19px;
@@ -58,7 +58,8 @@
         .kds-metrics {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 14px;
+            flex-wrap: wrap;
         }
         .kds-pill {
             background: #1e293b;
@@ -161,7 +162,7 @@
 
         .kds-items {
             background: #0f172a;
-            border-left: 4px solid #f97316;
+            border-left: 4px solid #3b82f6;
             padding: 12px 14px;
             border-radius: 8px;
             font-size: 16px;
@@ -213,57 +214,57 @@
 <body>
 <header class="kds-header">
     <div class="kds-brand">
-        <div class="kds-brand-icon"><i class="bi bi-fire"></i></div>
+        <div class="kds-brand-icon"><i class="bi bi-display"></i></div>
         <div>
-            <div class="kds-title">KDS COCINA — {{ strtoupper($tenant?->name ?? 'TIZÓN 317 PIZZERÍA') }}</div>
-            <div class="kds-subtitle">Sincronización en vivo cada 4s · Voz IA · WhatsApp IA · Facebook IA</div>
+            <div class="kds-title">LIVE ORDER DISPLAY (KDS) — {{ strtoupper($tenant?->name ?? 'ORDERS') }}</div>
+            <div class="kds-subtitle">Real-time sync every 4s · Voice AI · WhatsApp AI · Social Messenger AI</div>
         </div>
     </div>
 
     <div class="kds-metrics">
         <div class="kds-pill">
             <i class="bi bi-check2-all" style="color:#34d399;"></i>
-            <span>Entregados Hoy: <strong id="kdsDeliveredCount">0</strong></span>
+            <span>Completed Today: <strong id="kdsDeliveredCount">0</strong></span>
         </div>
         <div class="kds-pill">
             <i class="bi bi-cash-coin" style="color:#38bdf8;"></i>
-            <span>Ventas Hoy: <strong id="kdsSalesToday">$0.00</strong></span>
+            <span>Today's Sales: <strong id="kdsSalesToday">$0.00</strong></span>
         </div>
         <button type="button" id="soundToggleBtn" onclick="toggleSound()" class="kds-pill" style="cursor:pointer;background:#065f46;border-color:#059669;color:#fff;">
-            <i class="bi bi-volume-up-fill"></i> <span id="soundLabel">Campana Activa</span>
+            <i class="bi bi-volume-up-fill"></i> <span id="soundLabel">Sound Alert ON</span>
         </button>
         <button type="button" onclick="toggleFullScreen()" class="kds-pill" style="cursor:pointer;color:#e2e8f0;">
-            <i class="bi bi-arrows-fullscreen"></i> Pantalla Completa
+            <i class="bi bi-arrows-fullscreen"></i> Fullscreen
         </button>
         <a href="{{ route('orders.index') }}" class="kds-pill" style="color:#94a3b8;text-decoration:none;">
-            <i class="bi bi-arrow-left"></i> Volver al CRM
+            <i class="bi bi-arrow-left"></i> Back to Orders
         </a>
     </div>
 </header>
 
 <main class="kds-board">
-    <!-- Columna 1: Nuevos -->
+    <!-- Column 1: New Orders -->
     <section class="kds-col kds-col-new">
         <div class="kds-col-header">
-            <span><i class="bi bi-bell-fill"></i> 1. Nuevas Comandas</span>
+            <span><i class="bi bi-bell-fill"></i> 1. New Orders</span>
             <span class="kds-col-count" id="countNew">0</span>
         </div>
         <div class="kds-col-body" id="colNew"></div>
     </section>
 
-    <!-- Columna 2: En Horno / Preparando -->
+    <!-- Column 2: Preparing -->
     <section class="kds-col kds-col-prep">
         <div class="kds-col-header">
-            <span><i class="bi bi-fire"></i> 2. En Horno / Preparando</span>
+            <span><i class="bi bi-clock-history"></i> 2. In Preparation</span>
             <span class="kds-col-count" id="countPrep">0</span>
         </div>
         <div class="kds-col-body" id="colPrep"></div>
     </section>
 
-    <!-- Columna 3: Listos / En Reparto -->
+    <!-- Column 3: Ready / Out for Delivery -->
     <section class="kds-col kds-col-ready">
         <div class="kds-col-header">
-            <span><i class="bi bi-scooter"></i> 3. Listos / En Reparto</span>
+            <span><i class="bi bi-box-seam"></i> 3. Ready / In Transit</span>
             <span class="kds-col-count" id="countReady">0</span>
         </div>
         <div class="kds-col-body" id="colReady"></div>
@@ -303,11 +304,11 @@ function toggleSound() {
     const lbl = document.getElementById('soundLabel');
     if (soundEnabled) {
         btn.style.background = '#065f46';
-        lbl.textContent = 'Campana Activa';
+        lbl.textContent = 'Sound Alert ON';
         playKitchenBell();
     } else {
         btn.style.background = '#334155';
-        lbl.textContent = 'Silenciado';
+        lbl.textContent = 'Muted';
     }
 }
 
@@ -326,9 +327,9 @@ function formatTimer(sec) {
 }
 
 function channelBadge(ch) {
-    if (ch === 'voice') return '<span style="background:rgba(139,92,246,0.2);color:#c4b5fd;padding:3px 8px;border-radius:6px;font-size:12px;font-weight:700;"><i class="bi bi-telephone-fill"></i> VOZ IA</span>';
-    if (ch === 'whatsapp') return '<span style="background:rgba(16,185,129,0.2);color:#6ee7b7;padding:3px 8px;border-radius:6px;font-size:12px;font-weight:700;"><i class="bi bi-whatsapp"></i> WHATSAPP IA</span>';
-    if (ch === 'facebook') return '<span style="background:rgba(59,130,246,0.2);color:#93c5fd;padding:3px 8px;border-radius:6px;font-size:12px;font-weight:700;"><i class="bi bi-messenger"></i> FACEBOOK IA</span>';
+    if (ch === 'voice') return '<span style="background:rgba(139,92,246,0.2);color:#c4b5fd;padding:3px 8px;border-radius:6px;font-size:12px;font-weight:700;"><i class="bi bi-telephone-fill"></i> VOICE AI</span>';
+    if (ch === 'whatsapp') return '<span style="background:rgba(16,185,129,0.2);color:#6ee7b7;padding:3px 8px;border-radius:6px;font-size:12px;font-weight:700;"><i class="bi bi-whatsapp"></i> WHATSAPP AI</span>';
+    if (ch === 'facebook') return '<span style="background:rgba(59,130,246,0.2);color:#93c5fd;padding:3px 8px;border-radius:6px;font-size:12px;font-weight:700;"><i class="bi bi-messenger"></i> FACEBOOK AI</span>';
     return `<span style="background:#334155;color:#cbd5e1;padding:3px 8px;border-radius:6px;font-size:12px;font-weight:700;">${ch.toUpperCase()}</span>`;
 }
 
@@ -336,16 +337,16 @@ function renderCard(o) {
     const elapsed = Math.max(0, Math.floor(Date.now() / 1000) - o.created_ts);
     const timerClass = elapsed < 720 ? 'timer-ok' : (elapsed < 1500 ? 'timer-warn' : 'timer-late');
     const deliveryHtml = o.delivery_type === 'pickup'
-        ? '<span style="color:#fbbf24;font-weight:800;"><i class="bi bi-shop"></i> PASAR A RECOGER</span>'
-        : `<span style="color:#38bdf8;font-weight:800;"><i class="bi bi-scooter"></i> DOMICILIO:</span> ${o.delivery_address || 'Confirmar dirección'}`;
+        ? '<span style="color:#fbbf24;font-weight:800;"><i class="bi bi-shop"></i> STORE PICKUP</span>'
+        : `<span style="color:#38bdf8;font-weight:800;"><i class="bi bi-truck"></i> DELIVERY:</span> ${o.delivery_address || 'Confirm address'}`;
 
     let actionBtn = '';
     if (o.status === 'new') {
-        actionBtn = `<button class="kds-btn btn-to-prep" onclick="advanceOrder(${o.id}, 'preparing')"><i class="bi bi-fire"></i> METER AL HORNO</button>`;
+        actionBtn = `<button class="kds-btn btn-to-prep" onclick="advanceOrder(${o.id}, 'preparing')"><i class="bi bi-play-circle-fill"></i> START PREPARING</button>`;
     } else if (o.status === 'preparing') {
-        actionBtn = `<button class="kds-btn btn-to-ready" onclick="advanceOrder(${o.id}, 'ready')"><i class="bi bi-scooter"></i> LISTO (AVISAR WHATSAPP)</button>`;
+        actionBtn = `<button class="kds-btn btn-to-ready" onclick="advanceOrder(${o.id}, 'ready')"><i class="bi bi-box-seam"></i> MARK READY (NOTIFY WA)</button>`;
     } else if (o.status === 'ready') {
-        actionBtn = `<button class="kds-btn btn-to-done" onclick="advanceOrder(${o.id}, 'delivered')"><i class="bi bi-check-circle-fill"></i> MARCAR ENTREGADO</button>`;
+        actionBtn = `<button class="kds-btn btn-to-done" onclick="advanceOrder(${o.id}, 'delivered')"><i class="bi bi-check-circle-fill"></i> MARK COMPLETED</button>`;
     }
 
     return `
@@ -353,7 +354,7 @@ function renderCard(o) {
             <div class="kds-card-top">
                 <div>
                     <div class="kds-order-num">#${o.order_number}</div>
-                    <div style="font-size:11.5px;color:#94a3b8;">Hora: ${o.created_time}</div>
+                    <div style="font-size:11.5px;color:#94a3b8;">Time: ${o.created_time}</div>
                 </div>
                 <div style="display:flex;align-items:center;gap:8px;">
                     ${channelBadge(o.channel)}
@@ -367,7 +368,7 @@ function renderCard(o) {
                 <div><i class="bi bi-person-fill"></i> <strong>${o.customer_name}</strong> ${o.customer_phone ? '(' + o.customer_phone + ')' : ''}</div>
                 <div>${deliveryHtml}</div>
                 <div class="kds-badge-row" style="margin-top:4px;padding-top:8px;border-top:1px solid #334155;">
-                    <span><i class="bi bi-credit-card"></i> Pago: <strong>${o.payment_method}</strong></span>
+                    <span><i class="bi bi-credit-card"></i> Payment: <strong>${o.payment_method}</strong></span>
                     <span style="font-size:17px;font-weight:800;color:#34d399;">$${o.total_amount} MXN</span>
                 </div>
             </div>
@@ -388,15 +389,15 @@ function renderBoard(orders) {
 
     document.getElementById('colNew').innerHTML = news.length
         ? news.map(renderCard).join('')
-        : '<div class="empty-col"><i class="bi bi-inbox" style="font-size:32px;display:block;margin-bottom:8px;"></i>Sin comandas nuevas</div>';
+        : '<div class="empty-col"><i class="bi bi-inbox" style="font-size:32px;display:block;margin-bottom:8px;"></i>No new orders waiting</div>';
 
     document.getElementById('colPrep').innerHTML = preps.length
         ? preps.map(renderCard).join('')
-        : '<div class="empty-col"><i class="bi bi-fire" style="font-size:32px;display:block;margin-bottom:8px;"></i>Horno libre</div>';
+        : '<div class="empty-col"><i class="bi bi-clock-history" style="font-size:32px;display:block;margin-bottom:8px;"></i>No orders in preparation</div>';
 
     document.getElementById('colReady').innerHTML = readys.length
         ? readys.map(renderCard).join('')
-        : '<div class="empty-col"><i class="bi bi-scooter" style="font-size:32px;display:block;margin-bottom:8px;"></i>Sin pedidos pendientes de entrega</div>';
+        : '<div class="empty-col"><i class="bi bi-box-seam" style="font-size:32px;display:block;margin-bottom:8px;"></i>No orders waiting for pickup/delivery</div>';
 }
 
 async function pollKds() {

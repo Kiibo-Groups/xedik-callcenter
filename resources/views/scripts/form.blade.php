@@ -32,19 +32,27 @@
         @if(auth()->user()->isSuperAdmin())
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px;padding-top:12px;border-top:1px dashed rgba(99,102,241,0.3);">
             <div>
-                <label class="form-label" style="font-size:12px;">Voicebot Agent ID (SuperAdmin)</label>
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <label class="form-label" style="font-size:12px;">Voicebot Agent ID (ElevenLabs)</label>
+                    @if($script->exists && $script->voicebot_agent_id)
+                        <a href="{{ route('scripts.edit', ['script' => $script->id, 'pull_elevenlabs' => 1]) }}"
+                           style="font-size:11px;font-weight:600;color:#4f46e5;text-decoration:none;">
+                            <i class="bi bi-cloud-arrow-down-fill"></i> Pull Prompt from ElevenLabs
+                        </a>
+                    @endif
+                </div>
                 <input type="text" name="voicebot_agent_id" class="form-control"
                        value="{{ old('voicebot_agent_id', $script->voicebot_agent_id) }}"
-                       placeholder="e.g. agent_2101m5xst5cgf1gv86jxhf2an2nd">
-                <div class="form-hint" style="font-size:11px;">Identificador técnico del Asesor Voicebot vinculado a este guion.</div>
+                       placeholder="e.g. agent_1001m7bb8cw3ffvb9wvkpqvzjmv0">
+                <div class="form-hint" style="font-size:11px;">ElevenLabs Agent ID linked to this script (saving pushes changes directly to ElevenLabs).</div>
                 @error('voicebot_agent_id')<div style="color:#dc2626;font-size:11px;">{{ $message }}</div>@enderror
             </div>
             <div>
-                <label class="form-label" style="font-size:12px;">Voicebot Voice ID (SuperAdmin)</label>
+                <label class="form-label" style="font-size:12px;">Voicebot Voice ID (ElevenLabs)</label>
                 <input type="text" name="voicebot_voice_id" class="form-control"
                        value="{{ old('voicebot_voice_id', $script->voicebot_voice_id) }}"
-                       placeholder="e.g. p7sm2zw5Us66lZr2brDW">
-                <div class="form-hint" style="font-size:11px;">ID de la voz asignada (ej. Eva, Carlos, Mauricio).</div>
+                       placeholder="e.g. ojGau167OE7nUATM1xDa">
+                <div class="form-hint" style="font-size:11px;">Assigned voice ID in ElevenLabs.</div>
                 @error('voicebot_voice_id')<div style="color:#dc2626;font-size:11px;">{{ $message }}</div>@enderror
             </div>
         </div>
@@ -102,14 +110,31 @@
             Script Settings
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+        <div style="display:grid;grid-template-columns:{{ auth()->user()->isSuperAdmin() ? '1fr 1fr 1fr' : '1fr 1fr' }};gap:16px;margin-bottom:16px;">
+            @if(auth()->user()->isSuperAdmin() && isset($tenants) && $tenants->isNotEmpty())
+            {{-- Tenant --}}
+            <div>
+                <label class="form-label">Tenant <span class="required-star">*</span></label>
+                <select name="tenant_id" id="scriptTenant" class="form-control" required onchange="filterCampaignsByTenant(this.value)">
+                    <option value="">— Select tenant —</option>
+                    @foreach($tenants as $t)
+                        <option value="{{ $t->id }}"
+                            {{ old('tenant_id', $script->tenant_id) == $t->id ? 'selected' : '' }}>
+                            {{ $t->name }} ({{ $t->isRestaurant() ? 'Restaurant / Orders' : 'Call Center' }})
+                        </option>
+                    @endforeach
+                </select>
+                @error('tenant_id')<div style="color:#dc2626;font-size:12px;margin-top:4px;">{{ $message }}</div>@enderror
+            </div>
+            @endif
+
             {{-- Campaign --}}
             <div>
-                <label class="form-label">Campaign <span class="required-star">*</span></label>
-                <select name="campaign_id" id="scriptCampaign" class="form-control" required>
-                    <option value="">— Select campaign —</option>
+                <label class="form-label">Campaign</label>
+                <select name="campaign_id" id="scriptCampaign" class="form-control">
+                    <option value="">— Auto / Default Campaign —</option>
                     @foreach($campaigns as $c)
-                        <option value="{{ $c->id }}"
+                        <option value="{{ $c->id }}" data-tenant="{{ $c->tenant_id }}"
                             {{ old('campaign_id', $script->campaign_id) == $c->id ? 'selected' : '' }}>
                             {{ $c->name }}
                         </option>
@@ -123,7 +148,7 @@
                 <label class="form-label">Script Name <span class="required-star">*</span></label>
                 <input type="text" name="name" class="form-control"
                        value="{{ old('name', $script->name) }}"
-                       placeholder="e.g. Opening – Inbound Sales" required maxlength="150">
+                       placeholder="e.g. Order Taking – Inbound Voice AI" required maxlength="150">
                 @error('name')<div style="color:#dc2626;font-size:12px;margin-top:4px;">{{ $message }}</div>@enderror
             </div>
         </div>
@@ -303,6 +328,27 @@
     // ── Initialize on page load ───────────────────────────────────────────────
     const initialType = document.getElementById('scriptType').value;
     toggleScriptType(initialType);
+
+    window.filterCampaignsByTenant = function (tenantId) {
+        const campSelect = document.getElementById('scriptCampaign');
+        if (!campSelect) return;
+        let firstMatch = '';
+        Array.from(campSelect.options).forEach(opt => {
+            if (!opt.value) return;
+            const match = !tenantId || opt.dataset.tenant === String(tenantId);
+            opt.style.display = match ? '' : 'none';
+            if (match && !firstMatch) firstMatch = opt.value;
+        });
+        const selectedOpt = campSelect.options[campSelect.selectedIndex];
+        if (tenantId && selectedOpt && selectedOpt.value && selectedOpt.dataset.tenant !== String(tenantId)) {
+            campSelect.value = firstMatch || '';
+        }
+    };
+
+    const tenantSelect = document.getElementById('scriptTenant');
+    if (tenantSelect && tenantSelect.value) {
+        window.filterCampaignsByTenant(tenantSelect.value);
+    }
 }());
 </script>
 @endpush

@@ -59,25 +59,15 @@
                     <span class="nav-link-text">Home</span>
                 </a>
             </div>
-            <div class="nav-item">
-                <a href="{{ route('orders.index') }}" class="nav-link {{ request()->routeIs('orders.index') ? 'active' : '' }}" title="Pedidos & Comandas">
-                    <i class="bi bi-fire" style="color:#f97316;"></i>
-                    <span class="nav-link-text">Pedidos & Comandas</span>
-                </a>
-            </div>
-            <div class="nav-item">
-                <a href="{{ route('orders.kds') }}" target="_blank" class="nav-link {{ request()->routeIs('orders.kds') ? 'active' : '' }}" title="KDS Pantalla de Cocina">
-                    <i class="bi bi-display" style="color:#10b981;"></i>
-                    <span class="nav-link-text">KDS Cocina (Vivo)</span>
-                </a>
-            </div>
         </nav>
     </div>
 
     @php 
         $authUser = Auth::user();
+        $isRestaurantTenant = !$authUser->isSuperAdmin() && ($authUser->tenant?->isRestaurant() ?? false);
         $moduleLabels = [
             'console' => 'Agent Console',
+            'orders'  => 'Orders & KDS',
             'leads'   => 'CRM',
             'calls'   => 'Calls',
             'admin'   => 'Admin',
@@ -93,6 +83,10 @@
             ? \App\Models\Permission::orderBy('sort_order')->get()->groupBy('module')
             : ($authUser->role?->permissions()->orderBy('sort_order')->get()->groupBy('module') ?? collect())
         )->all())->except('voice');
+
+        if ($isRestaurantTenant) {
+            $sidebarPerms = $sidebarPerms->except(['leads', 'calls', 'dialer', 'reports']);
+        }
 
         // SMS: collapse manage_sms_channels/manage_sms_templates into single "SMS" link
         $smsPermissionNames = ['manage_sms_channels', 'manage_sms_templates'];
@@ -146,6 +140,10 @@
         ];
 
         $adminPerms = $sidebarPerms->get('admin', collect());
+        if ($isRestaurantTenant) {
+            unset($adminSubgroupsDef['team'], $adminSubgroupsDef['crm'], $adminSubgroupsDef['telephony']);
+            $adminPerms = $adminPerms->filter(fn($p) => in_array($p->name, $adminSubgroupsDef['channels']['perms'] ?? [], true))->values();
+        }
         $adminSubgroups = [];
         $assignedPermNames = [];
 
@@ -235,7 +233,7 @@
                     @endphp
                     @if($url !== '#')
                     <div class="nav-item">
-                        <a href="{{ $url }}" class="nav-link {{ $isActive ? 'active' : '' }}" title="{{ $perm->label }}">
+                        <a href="{{ $url }}" @if($perm->route === 'orders.kds') target="_blank" @endif class="nav-link {{ $isActive ? 'active' : '' }}" title="{{ $perm->label }}">
                             <i class="bi {{ $perm->icon }}"></i>
                             <span class="nav-link-text">{{ $perm->label }}</span>
                         </a>
