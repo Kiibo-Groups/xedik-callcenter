@@ -7,6 +7,7 @@ namespace App\Http\Controllers;
 use App\Models\Call;
 use App\Models\DialerCampaign;
 use App\Models\Lead;
+use App\Models\RestaurantOrder;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Models\VoiceSession;
@@ -28,15 +29,18 @@ class HomeController extends Controller
             $requestedTenantId = $request->query('tenant_id');
             if ($requestedTenantId && $availableTenants->contains('id', (int) $requestedTenantId)) {
                 $tenantId = (int) $requestedTenantId;
+                session(['active_tenant_id' => $tenantId]);
+            } elseif (session()->has('active_tenant_id') && $availableTenants->contains('id', (int) session('active_tenant_id'))) {
+                $tenantId = (int) session('active_tenant_id');
             } else {
                 $tenantId = (int) ($user->tenant_id ?? $availableTenants->first()?->id ?? 1);
             }
         } else {
-            // Usuario normal o Admin de Tenant: Aislamiento forzoso
             $tenantId = (int) ($user->tenant_id ?? 0);
         }
 
         $currentTenant = Tenant::find($tenantId);
+        $isRestaurantTenant = $currentTenant?->isRestaurant() ?? false;
         $today = Carbon::today();
 
         // ── 2. Métricas del Día (Filtradas estrictamente por Tenant) ───────────
@@ -117,12 +121,12 @@ class HomeController extends Controller
             }
 
             return [
-                'id' => $u->id,
-                'name' => $u->name,
-                'email' => $u->email,
-                'role' => $u->role?->name ?? 'Agente',
-                'extension' => $u->voiceExtension?->extension ?? 'Sin Ext',
-                'is_online' => $isOnline,
+                'id'           => $u->id,
+                'name'         => $u->name,
+                'email'        => $u->email,
+                'role'         => $u->role?->name ?? 'Agente',
+                'extension'    => $u->voiceExtension?->extension ?? 'Sin Ext',
+                'is_online'    => $isOnline,
                 'status_label' => $statusLabel,
                 'status_badge' => $statusBadge,
             ];
@@ -145,24 +149,80 @@ class HomeController extends Controller
             ->take(5)
             ->get();
 
+        // ── 7. Métricas y Pedidos en Vivo para Giro Restaurante / Orders ────────
+        $orderStats = [];
+        $recentOrders = collect();
+        if ($isRestaurantTenant) {
+            $baseOrders = RestaurantOrder::withoutGlobalScopes()->where('tenant_id', $tenantId);
+            $todayOrdersQuery = (clone $baseOrders)->whereDate('created_at', $today);
+
+            $totalOrdersCount = (clone $baseOrders)->count();
+            $totalValidOrders = (clone $baseOrders)->where('status', '!=', 'cancelled');
+            $totalRevenue     = (float) (clone $totalValidOrders)->sum('total_amount');
+            $avgTicket        = (float) ((clone $totalValidOrders)->avg('total_amount') ?? 0);
+
+            $newCount       = (int) (clone $baseOrders)->where('status', 'new')->count();
+            $preparingCount = (int) (clone $baseOrders)->where('status', 'preparing')->count();
+            $readyCount     = (int) (clone $baseOrders)->where('status', 'ready')->count();
+            $deliveredCount = (int) (clone $baseOrders)->where('status', 'delivered')->count();
+
+            $channelCounts = [
+                'voice'     => (int) (clone $baseOrders)->where('channel', 'voice')->count(),
+                'whatsapp'  => (int) (clone $baseOrders)->where('channel', 'whatsapp')->count(),
+                'facebook'  => (int) (clone $baseOrders)->where('channel', 'facebook')->count(),
+                'instagram' => (int) (clone $baseOrders)->where('channel', 'instagram')->count(),
+                'manual'    => (int) (clone $baseOrders)->where('channel', 'manual')->count(),
+            ];
+
+            $deliveryCount = (int) (clone $baseOrders)->where('delivery_type', 'delivery')->count();
+            $pickupCount   = (int) (clone $baseOrders)->where('delivery_type', 'pickup')->count();
+
+            $orderStats = [
+                'today_orders'    => (int) (clone $todayOrdersQuery)->count(),
+                'today_revenue'   => (float) (clone $todayOrdersQuery)->where('status', '!=', 'cancelled')->sum('total_amount'),
+                'completed_today' => (int) (clone $todayOrdersQuery)->where('status', 'delivered')->count(),
+                'total_orders'    => $totalOrdersCount,
+                'total_revenue'   => $totalRevenue,
+                'avg_ticket'      => $avgTicket,
+                'new_count'       => $newCount,
+                'preparing_count' => $preparingCount,
+                'in_preparation'  => $newCount + $preparingCount,
+                'ready_count'     => $readyCount,
+                'delivered_count' => $deliveredCount,
+                'by_channel'      => $channelCounts,
+                'delivery_count'  => $deliveryCount,
+                'pickup_count'    => $pickupCount,
+            ];
+
+            $recentOrders = RestaurantOrder::withoutGlobalScopes()
+                ->where('tenant_id', $tenantId)
+                ->with(['call' => fn ($q) => $q->withoutGlobalScopes()])
+                ->orderByDesc('id')
+                ->take(8)
+                ->get();
+        }
+
         return view('home', [
-            'isSuperAdmin' => $isSuperAdmin,
-            'availableTenants' => $availableTenants,
-            'currentTenant' => $currentTenant,
-            'tenantId' => $tenantId,
-            'todayCallsCount' => $todayCallsCount,
-            'todayVoicebotCalls' => $todayVoicebotCalls,
-            'todayHumanCalls' => $todayHumanCalls,
+            'isSuperAdmin'         => $isSuperAdmin,
+            'availableTenants'     => $availableTenants,
+            'currentTenant'        => $currentTenant,
+            'isRestaurantTenant'   => $isRestaurantTenant,
+            'tenantId'             => $tenantId,
+            'todayCallsCount'      => $todayCallsCount,
+            'todayVoicebotCalls'   => $todayVoicebotCalls,
+            'todayHumanCalls'      => $todayHumanCalls,
             'avgDurationFormatted' => $avgDurationFormatted,
-            'totalLeads' => $totalLeads,
-            'todayLeads' => $todayLeads,
-            'scheduledCallsCount' => $scheduledCallsCount,
+            'totalLeads'           => $totalLeads,
+            'todayLeads'           => $todayLeads,
+            'scheduledCallsCount'  => $scheduledCallsCount,
             'activeCampaignsCount' => $activeCampaignsCount,
-            'totalCampaignsCount' => $totalCampaignsCount,
-            'dialerCampaigns' => $dialerCampaigns,
-            'agentsRealtime' => $agentsRealtime,
+            'totalCampaignsCount'  => $totalCampaignsCount,
+            'dialerCampaigns'      => $dialerCampaigns,
+            'agentsRealtime'       => $agentsRealtime,
             'upcomingAppointments' => $upcomingAppointments,
-            'recentCalls' => $recentCalls,
+            'recentCalls'          => $recentCalls,
+            'orderStats'           => $orderStats,
+            'recentOrders'         => $recentOrders,
         ]);
     }
 }
